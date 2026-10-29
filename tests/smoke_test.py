@@ -51,4 +51,3 @@ async def main():
   assert len(i.followup.send.call_args.kwargs['view'].category_select.options)==5
   print('PASS: 13 cogs load; persistent views; five support options; atomic double-review protection; member picker and permission denial; transcript failure preserves channel; dashboard navigation.')
 asyncio.run(main())
-
