@@ -37,56 +37,12 @@ PRIORITY_LABELS = {
     "urgent": "🔴 Urgent",
 }
 
-DEFAULT_QUESTIONS = {
-    "General Support": [
-        {"label": "What is your username?", "style": "short"},
-        {"label": "What do you need help with?", "style": "paragraph"},
-    ],
-    "Report a Member": [
-        {"label": "What is your username?", "style": "short"},
-        {"label": "The member you are reporting", "style": "short"},
-        {"label": "What did they do?", "style": "paragraph"},
-    ],
-    "Bug Report": [
-        {"label": "What is your username?", "style": "short"},
-        {"label": "What's the bug?", "style": "paragraph"},
-        {"label": "How did you find it?", "style": "paragraph"},
-    ],
-    "Application": [
-        {"label": "What is your username?", "style": "short"},
-        {"label": "What are you applying for?", "style": "short"},
-        {"label": "Why should we pick you?", "style": "paragraph"},
-    ],
-}
+DEFAULT_QUESTIONS = {'Support': [{'label': 'What do you need help with?', 'style': 'paragraph'}], 'Player Report': [{'label': 'Who are you reporting?', 'style': 'short'}, {'label': 'What happened? Include evidence links.', 'style': 'paragraph'}], 'Bug Report': [{'label': 'What is broken?', 'style': 'paragraph'}, {'label': 'How can we reproduce it?', 'style': 'paragraph'}], 'Unban Appeal': [{'label': 'Your username or Discord ID', 'style': 'short'}, {'label': 'Why were you banned or muted?', 'style': 'paragraph'}, {'label': 'Why should we reconsider?', 'style': 'paragraph'}], 'Staff Report': [{'label': 'Which staff member are you reporting?', 'style': 'short'}, {'label': 'What happened? Include evidence links.', 'style': 'paragraph'}]}
 
+CATEGORY_DETAILS = {'Support': ('💬', 'Questions or help with anything on the server'), 'Player Report': ('🚨', 'Report a cheater, rule breaker or toxic player'), 'Bug Report': ('🐛', 'Something broken? Tell us so we can fix it'), 'Unban Appeal': ('⚖️', 'Banned or muted? Ask for a second chance'), 'Staff Report': ('🛡️', 'Report a staff member to management')}
 
-# =====================================================================
-# Settings helpers
-# =====================================================================
-
-# ------------------------------------------------------------------
-# Panel defaults — rich layout matching the applications panel style.
-# ------------------------------------------------------------------
-
-TICKET_PANEL_TITLE = "\U0001f3ab\u30fbAU SCHOOLS SUPPORT"
-
-TICKET_PANEL_DESCRIPTION = (
-    "Need help? Our support team is here to assist.\n\n"
-    "**Select the option below that best matches your issue.**\n\n"
-    "> \U0001f6e0 **General Support**\n"
-    "> Questions, assistance, or anything else you need help with.\n\n"
-    "> \U0001f6a8 **Report a Member**\n"
-    "> Report a member breaking the rules. Please include clear evidence where possible.\n\n"
-    "> \U0001f41b **Bug Report**\n"
-    "> Found a bug or issue? Let us know with as much detail as possible.\n\n"
-    "### \u30fbBEFORE OPENING A TICKET\n"
-    "> Choose the correct category\n"
-    "> Explain your issue clearly\n"
-    "> Include screenshots or videos when relevant\n"
-    "> Don't create multiple tickets for the same issue\n"
-    "> Treat our staff with respect\n\n"
-    "**AU SCHOOLS \u2022 We're here to help.**"
-)
+TICKET_PANEL_TITLE = "AU Schools Support"
+TICKET_PANEL_DESCRIPTION = 'Need a hand? Pick what you need below and a private ticket opens just for you.\n\nPlease only open one ticket per problem, and include as much detail as you can. Staff will get to you as soon as possible! 💚\n\n**What can we help with?**\n💬 **Support:** Questions or help with anything on the server\n🚨 **Player Report:** Report a cheater, rule breaker or toxic player\n🐛 **Bug Report:** Something broken? Tell us so we can fix it\n⚖️ **Unban Appeal:** Banned or muted? Ask for a second chance\n🛡️ **Staff Report:** Report a staff member to management'
 
 # Pre-redesign default; a stored description identical to this is migrated.
 LEGACY_TICKET_PANEL_DESC = (
@@ -135,10 +91,10 @@ async def get_categories(guild_id: int) -> list[dict]:
         except json.JSONDecodeError:
             qs = []
         if not qs:
-            qs = DEFAULT_QUESTIONS.get(r["name"], DEFAULT_QUESTIONS["General Support"])
+            qs = DEFAULT_QUESTIONS.get(r["name"], DEFAULT_QUESTIONS["Support"])
         out.append({"name": r["name"], "emoji": r["emoji"] or "🎫", "questions": qs})
     return out or [
-        {"name": name, "emoji": "🎫", "questions": DEFAULT_QUESTIONS.get(name, DEFAULT_QUESTIONS["General Support"])}
+        {"name": name, "emoji": CATEGORY_DETAILS.get(name, ("🎫", ""))[0], "questions": DEFAULT_QUESTIONS.get(name, DEFAULT_QUESTIONS["Support"])}
         for name in DEFAULT_QUESTIONS
     ]
 
@@ -388,12 +344,13 @@ class TicketPanelView(discord.ui.View):
                     label=c["name"][:100],
                     value=c["name"][:100],
                     emoji=c["emoji"] if len(c["emoji"]) <= 3 else None,
+                    description=CATEGORY_DETAILS.get(c["name"], ("", ""))[1] or None,
                 )
                 for c in categories[:25]
             ]
 
     @discord.ui.select(
-        placeholder="Create a ticket...",
+        placeholder="🎫 Pick what you need help with",
         custom_id="pffa_ticket_select",
         min_values=1,
         max_values=1,
@@ -408,7 +365,7 @@ class TicketPanelView(discord.ui.View):
         choice = select.values[0]
         cats = await get_categories(interaction.guild.id)
         cat = next((c for c in cats if c["name"] == choice), None)
-        questions = cat["questions"] if cat else DEFAULT_QUESTIONS["General Support"]
+        questions = cat["questions"] if cat else DEFAULT_QUESTIONS["Support"]
         await interaction.response.send_modal(TicketQuestionsModal(cog, choice, questions))
 
 
@@ -860,7 +817,7 @@ class TicketSystem(commands.Cog):
             return
 
         staff_ids = []
-        for key in ("ticket_staff_role",):
+        for key in (("ticket_admin_role",) if category == "Staff Report" else ("ticket_staff_role",)):
             val = settings.get(key)
             if val:
                 staff_ids.extend(r.strip() for r in val.split(",") if r.strip().isdigit())
