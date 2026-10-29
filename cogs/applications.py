@@ -578,7 +578,7 @@ async def start_application(interaction: discord.Interaction, app_name: str) -> 
 
     await dm.send(embed=plain_embed(
         None,
-        f"✅ Your **{app_name}** application has been submitted to {sub_channel.mention}!"))
+        f"✅ {'Dev' if app_name == 'Developer' else app_name} app submitted"))
 
 
 async def finalize_decision(
