@@ -13,6 +13,7 @@ Everything is editable per guild: panel text, application types, questions,
 channels, ping role, approve roles, reviewer role, cooldown hours.
 """
 
+import io
 import json
 import re
 import time
@@ -68,34 +69,7 @@ DEFAULT_TYPES: dict[str, dict] = {
 
 DEFAULT_PANEL_TITLE = "AU SCHOOLS APPLICATIONS"
 
-DEFAULT_PANEL_DESCRIPTION = (
-    "Choose the application that best matches what you're applying for. "
-    "Please ensure you meet the requirements before submitting. "
-    "Low-effort or joke applications will be denied.\n\n"
-    "**Staff Applications**\n"
-    "Help moderate the server, assist community members, and enforce the server rules.\n"
-    "**Requirements:**\n"
-    "- Active within the community\n"
-    "- Mature and respectful\n"
-    "- Good understanding of server rules\n\n"
-    "**Developer Applications**\n"
-    "Help build bots, websites, and tools for AU Schools.\n"
-    "**Requirements:**\n"
-    "- Must be 13 years of age or older\n"
-    "- Programming experience (any relevant language)\n"
-    "- Examples of previous work recommended\n\n"
-    "**Media Applications**\n"
-    "Help create content, edits, thumbnails, and promotional media for the server.\n"
-    "**Requirements:**\n"
-    "- Must be 13 years of age or older\n"
-    "- Prior content creation/editing experience\n"
-    "- Able to consistently produce quality content\n\n"
-    "**Important Information**\n"
-    "- Do not submit troll or spam applications.\n"
-    "- Put genuine effort into every response.\n"
-    "- Staff may request proof of experience or previous work.\n"
-    "- Any false or misleading information will result in an instant denial."
-)
+DEFAULT_PANEL_DESCRIPTION = 'Join the **AU Schools** team. Choose a position below to begin your application.\n\n**🛡️ Staff**\nSupport our members, uphold community standards and help keep AU Schools welcoming.\n\n**💻 Developer**\nBuild and maintain useful bots, websites and community tools.\n\n**🎬 Media**\nCreate engaging graphics, videos and promotional content.\n\n**Before you apply**\n• Enable DMs so we can send your questions.\n• Answer honestly and include examples where relevant.\n• Submit one application per position and wait for a decision.\n\nYour responses are reviewed privately by the application team. You will receive the outcome by DM when possible.'
 
 DEFAULT_COOLDOWN_HOURS = 72  # 3 days, like the Node bot
 
@@ -371,7 +345,7 @@ class ApplyPanelView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.select(
-        placeholder="Select an application",
+        placeholder="Choose a team to apply for",
         custom_id="bliss_app_select",
         min_values=1,
         max_values=1,
@@ -465,8 +439,37 @@ class ReviewDecisionModal(discord.ui.Modal, title="Provide a reason"):
 # ------------------------------------------------------------------
 
 async def start_application(interaction: discord.Interaction, app_name: str) -> None:
+    if interaction.user.id in _active_interviews:
+        return await interaction.response.send_message("You already have an application in progress. Finish it or type cancel in DMs.", ephemeral=True)
+    _active_interviews.add(interaction.user.id)
+    try:
+        await _run_application(interaction, app_name)
+    except discord.HTTPException:
+        if interaction.response.is_done():
+            await interaction.followup.send("Your application could not be completed. Please contact staff or try again; nothing is confirmed until you receive a submitted message.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Discord could not complete this request. Please try again.", ephemeral=True)
+    finally:
+        _active_interviews.discard(interaction.user.id)
+
+
+async def _run_application(interaction: discord.Interaction, app_name: str) -> None:
     guild = interaction.guild
     user = interaction.user
+    types = await get_types(guild.id)
+    configured = next((t for t in types if t['app_name'] == app_name), None)
+    channel_id = configured['submission_channel_id'] if configured else None
+    channel = guild.get_channel(int(channel_id)) if channel_id and channel_id.isdigit() else None
+    if not isinstance(channel, discord.TextChannel) or not all((channel.permissions_for(guild.me).view_channel, channel.permissions_for(guild.me).send_messages, channel.permissions_for(guild.me).embed_links, channel.permissions_for(guild.me).attach_files)):
+        return await interaction.response.send_message(embed=error_embed("Applications for this team are temporarily unavailable. Please contact staff."), ephemeral=True)
+    db = await get_db()
+    try:
+        async with db.execute("SELECT 1 FROM application_submissions WHERE guild_id=? AND user_id=? AND app_name=? AND status IN ('pending','on-hold')", (str(guild.id), str(user.id), app_name)) as cursor:
+            pending = await cursor.fetchone()
+    finally:
+        await db.close()
+    if pending:
+        return await interaction.response.send_message("You already have an application awaiting review for this team.", ephemeral=True)
 
     remaining, _hours = await cooldown_remaining(guild.id, user.id, app_name)
     if remaining > 0:
@@ -475,13 +478,6 @@ async def start_application(interaction: discord.Interaction, app_name: str) -> 
                 "Application on Cooldown",
                 f"You were recently denied for **{app_name}**. You can re-apply in **{format_remaining(remaining)}**.",
             ),
-            ephemeral=True,
-        )
-        return
-
-    if user.id in _active_interviews:
-        await interaction.response.send_message(
-            embed=error_embed("You already have an application in progress. Finish it first."),
             ephemeral=True,
         )
         return
@@ -502,8 +498,8 @@ async def start_application(interaction: discord.Interaction, app_name: str) -> 
         ephemeral=True,
     )
 
-    dm = await user.create_dm()
     try:
+        dm = await user.create_dm()
         await dm.send(
             embed=plain_embed(
                 f"{app_name} Application",
@@ -512,19 +508,18 @@ async def start_application(interaction: discord.Interaction, app_name: str) -> 
                 f"5 minute timeout per question.",
             )
         )
-    except discord.Forbidden:
+    except discord.HTTPException:
         await interaction.followup.send(
             embed=error_embed("I couldn't DM you — enable your DMs and pick again."),
             ephemeral=True,
         )
         return
 
-    _active_interviews.add(user.id)
     try:
         answers: list[tuple[str, str]] = []
         for i, q in enumerate(questions, start=1):
-            embed = plain_embed(f"Q{i}/{len(questions)}", q)
-            embed.set_footer(text="Type 'cancel' to abort. 5 min timeout per question.")
+            embed = plain_embed(f"AU Schools | {app_name} — Question {i}/{len(questions)}", q)
+            embed.set_footer(text="AU Schools • Reply below • cancel to exit • 5 minutes per question")
             await dm.send(embed=embed)
 
             def check(m: discord.Message, _uid=user.id):
@@ -533,15 +528,15 @@ async def start_application(interaction: discord.Interaction, app_name: str) -> 
             try:
                 msg = await interaction.client.wait_for("message", check=check, timeout=QUESTION_TIMEOUT)
             except TimeoutError:
-                await dm.send(embed=plain_embed(None, "❌ Application timed out."))
+                await dm.send(embed=plain_embed(None, "Application timed out. You can start again from the panel."))
                 return
 
             if msg.content.strip().lower() == "cancel":
-                await dm.send(embed=plain_embed(None, "❌ Application cancelled."))
+                await dm.send(embed=plain_embed(None, "Application cancelled. Nothing was submitted."))
                 return
             answers.append((q, msg.content))
-    finally:
-        _active_interviews.discard(user.id)
+    except discord.HTTPException:
+        raise
 
     # Find the submission channel (per-type, then fallback to any type that has one)
     types = await get_types(guild.id)
@@ -555,14 +550,21 @@ async def start_application(interaction: discord.Interaction, app_name: str) -> 
         return
 
     embed = plain_embed(f"New Application: {app_name}", f"Submitted by {user.mention} (`{user.id}`)")
-    for q, a in answers:
-        embed.add_field(name=q[:256], value=a[:1024] or "*No answer*", inline=False)
+    budget = 4200
+    for q, a in answers[:20]:
+        text = (a or "No answer")[:min(600, max(1, budget - len(q[:160])))]
+        if budget < len(q[:160]) + len(text):
+            break
+        embed.add_field(name=q[:160], value=text, inline=False)
+        budget -= len(q[:160]) + len(text)
+    full_answers = "\n\n".join(f"{i}. {q}\n{a}" for i, (q, a) in enumerate(answers, 1))
     embed.set_footer(text=f"User ID: {user.id}")
 
     ping_role_id = me["ping_role_id"] if me else None
     content = f"<@&{ping_role_id}>" if ping_role_id else None
-    sub_msg = await sub_channel.send(content=content, embed=embed)
-    await sub_msg.edit(view=build_review_row(sub_msg.id))
+    sub_msg = await sub_channel.send(content=content, embed=embed,
+        file=discord.File(io.BytesIO(full_answers.encode('utf-8')), filename='application-answers.txt'),
+        allowed_mentions=discord.AllowedMentions(everyone=False, users=False, roles=[discord.Object(id=int(ping_role_id))] if ping_role_id and ping_role_id.isdigit() else []))
 
     db = await get_db()
     try:
@@ -576,6 +578,7 @@ async def start_application(interaction: discord.Interaction, app_name: str) -> 
     finally:
         await db.close()
 
+    await sub_msg.edit(view=build_review_row(sub_msg.id))
     await dm.send(embed=plain_embed(
         None,
         f"✅ {'Dev' if app_name == 'Developer' else app_name} app submitted"))
@@ -588,19 +591,26 @@ async def finalize_decision(
     if not action_word:
         return
 
+    if not await is_application_staff(interaction):
+        return await interaction.response.send_message("Your application manager access is required.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
     db = await get_db()
     try:
+        await db.execute("BEGIN IMMEDIATE")
         async with db.execute(
-            "SELECT * FROM application_submissions WHERE submission_message_id=?",
-            (str(message_id),),
+            "SELECT * FROM application_submissions WHERE submission_message_id=? AND guild_id=?",
+            (str(message_id), str(interaction.guild.id)),
         ) as cursor:
             sub = await cursor.fetchone()
         if not sub:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=error_embed("Submission not found."), ephemeral=True
             )
             return
 
+        if sub['status'] not in ('pending', 'on-hold'):
+            await db.rollback()
+            return await interaction.followup.send("This application has already received a final decision.", ephemeral=True)
         await db.execute(
             "UPDATE application_submissions SET status=? WHERE id=?",
             (action_word, sub["id"]),
@@ -627,6 +637,7 @@ async def finalize_decision(
         except discord.Forbidden:
             pass
 
+    role_warning = ""
     # Side effects
     if action == "approve":
         approve_role_id = await _approve_role_for(guild.id, app_name)
@@ -635,8 +646,10 @@ async def finalize_decision(
             if role:
                 try:
                     await member.add_roles(role, reason=f"Application approved: {reason[:200]}")
-                except discord.Forbidden:
-                    pass
+                except discord.HTTPException:
+                    role_warning = " The approval role could not be assigned; check my role position and Manage Roles permission."
+            else:
+                role_warning = " The configured approval role no longer exists."
     elif action == "deny":
         await set_cooldown(guild.id, applicant_id, app_name)
 
@@ -648,19 +661,25 @@ async def finalize_decision(
         f"**Reason:** {reason}",
     )
     try:
-        for q, a in json.loads(sub["answers_json"] or "[]"):
-            result.add_field(name=str(q)[:256], value=(a or "*No answer*")[:1024], inline=False)
+        budget = 4000
+        for q, a in json.loads(sub["answers_json"] or "[]")[:20]:
+            name = str(q)[:160]
+            value = (a or "No answer")[:min(500, max(1, budget - len(name)))]
+            if budget < len(name) + len(value):
+                break
+            result.add_field(name=name, value=value, inline=False)
+            budget -= len(name) + len(value)
     except Exception:
         pass
     result.set_footer(text=f"Submission #{sub['id']}")
 
     if action == "hold":
         # Keep the message (and its buttons) active for a later decision.
-        await interaction.response.edit_message(embed=result, view=build_review_row(message_id))
+        await interaction.message.edit(embed=result, view=build_review_row(message_id))
+        await interaction.followup.send("Application placed on hold. It remains available for review.", ephemeral=True)
         return
 
-    # Approve / deny: move the result to its log channel and delete the review message.
-    await interaction.response.defer()
+    # Preserve the review record and optionally copy the outcome to its result channel.
     dest_id = await (_approved_channel_for(guild.id, app_name) if action == "approve"
                      else _denied_channel_for(guild.id, app_name))
     dest = guild.get_channel(int(dest_id)) if dest_id else None
@@ -670,11 +689,11 @@ async def finalize_decision(
         except discord.Forbidden:
             pass
     try:
-        await interaction.message.delete()
+        await interaction.message.edit(embed=result, view=None)
     except (discord.Forbidden, discord.NotFound):
         pass
     await interaction.followup.send(
-        embed=success_embed(f"Application **{action_word}** — result posted."), ephemeral=True
+        embed=success_embed(f"Application **{action_word}**. The review record has been updated.{role_warning}"), ephemeral=True
     )
 
 
@@ -756,7 +775,8 @@ class Applications(commands.Cog):
             return
         title, desc = await get_panel_text(interaction.guild.id)
         embed = discord.Embed(title=title, description=desc, color=ACCENT_COLOR)
-        embed.set_footer(text="Pick an application from the dropdown to get started.")
+        embed.set_footer(text="AU Schools • Applications are completed privately in DMs")
+        embed.set_thumbnail(url="https://raw.githubusercontent.com/coopernew2012-coder/AU-SCHOOLS/main/assets/au-schools-logo.png")
         view = ApplyPanelView()
         # Discord rejects select menus sent with zero options — populate
         # them from the current types before posting.

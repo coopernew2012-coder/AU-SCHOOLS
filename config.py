@@ -12,7 +12,6 @@ except ValueError:
     MAIN_GUILD_ID = 0
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_INVITE = os.getenv("DISCORD_INVITE", "")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 DATA_DIR = os.getenv("DATA_DIR", "data")
 DATABASE_PATH = os.path.join(DATA_DIR, "bot.db")
 SOFTBAN_CHANNEL_ID = ""

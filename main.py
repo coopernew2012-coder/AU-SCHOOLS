@@ -22,7 +22,7 @@ ACCESS_ROLE_ID = int(os.getenv("ACCESS_ROLE_ID", "0") or 0)
 # (config, editing, moderation, ... — including the whole /apply setup
 # group) is staff-only. /link stays public so players can claim their
 # in-game linking code.
-PUBLIC_COMMANDS = set()
+PUBLIC_COMMANDS = {"dashboard"}
 
 
 class AccessDenied(app_commands.CheckFailure):
@@ -53,7 +53,7 @@ class AUSchoolsBot(commands.Bot):
         self.tree.interaction_check = self._access_check
 
         cogs_dir = os.path.join(os.path.dirname(__file__), "cogs")
-        enabled_cogs = {"admin_config", "applications", "autorole", "moderation",
+        enabled_cogs = {"dashboard", "admin_config", "applications", "autorole", "moderation",
                         "roles", "softban", "staff", "tickets", "utility",
                         "verify", "warnings", "welcome"}
         for filename in sorted(os.listdir(cogs_dir)):
