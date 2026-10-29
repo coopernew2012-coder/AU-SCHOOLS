@@ -28,3 +28,5 @@ Application channels and send/embed/attachment permissions are checked before th
 
 ## Offline verification
 Run `python tests/smoke_test.py` after installing requirements. Tests use a temporary database and mocked Discord interactions; they do not send messages or log the bot in.
+
+The dashboard uses Discord Components V2: one green-accent card with a heading, welcome text, dropdown and green/gold brand strip. Requires discord.py 2.6 or newer. Repost existing dashboards with /dashboard channel:#your-channel to use the new layout.

@@ -22,16 +22,16 @@ def dashboard_embed():
     return embed
 
 
-class DashboardView(discord.ui.View):
+class LegacyDashboardView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.select(placeholder="Explore AU Schools", custom_id="au_schools_dashboard_v1", options=[
+    @discord.ui.select(placeholder="View the Dashboard", custom_id="au_schools_dashboard_v1", options=[
         discord.SelectOption(label="Guidelines", value="rules", emoji="📕", description="Read our rules and community standards"),
         discord.SelectOption(label="Server Information", value="info", emoji="📌", description="Community details and live Discord statistics"),
         discord.SelectOption(label="Community", value="community", emoji="💬", description="Find your place in AU Schools"),
-        discord.SelectOption(label="Help & Support", value="help", emoji="🎫", description="Get support, report an issue or appeal"),
-        discord.SelectOption(label="Applications", value="apply", emoji="📋", description="Apply for a position on our team"),
+        discord.SelectOption(label="Help", value="help", emoji="🎫", description="Get support, report an issue or appeal"),
+        discord.SelectOption(label="Apply", value="apply", emoji="📋", description="Apply for a position on our team"),
     ])
     async def navigate(self, interaction, select):
         await interaction.response.defer(ephemeral=True)
@@ -68,6 +68,30 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
+class DashboardView(discord.ui.LayoutView):
+    """Single card with heading, introduction, dropdown and brand strip."""
+    def __init__(self):
+        super().__init__(timeout=None)
+        navigation = LegacyDashboardView()
+        self.navigate = navigation.navigate
+        navigation.remove_item(self.navigate)
+        self.add_item(discord.ui.Container(
+            discord.ui.TextDisplay(
+                "## AU Schools Dashboard\n"
+                "Welcome to **AU Schools** — a community built around respect, connection "
+                "and helpful staff support.\n\n"
+                "Use the menu below to view our **guidelines**, **server information**, "
+                "**community features**, **help options**, and **team applications**."
+            ),
+            discord.ui.ActionRow(self.navigate),
+            discord.ui.MediaGallery(discord.MediaGalleryItem(
+                "https://raw.githubusercontent.com/coopernew2012-coder/AU-SCHOOLS/main/assets/dashboard-banner.png",
+                description="AU Schools — your community",
+            )),
+            accent_colour=0x155E32,
+        ))
+
+
 class Dashboard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -84,12 +108,12 @@ class Dashboard(commands.Cog):
                 return await interaction.response.send_message("Manage Server permission is required to publish a dashboard.", ephemeral=True)
             await interaction.response.defer(ephemeral=True)
             try:
-                message = await channel.send(embed=dashboard_embed(), view=DashboardView())
+                message = await channel.send(view=DashboardView())
             except discord.Forbidden:
                 return await interaction.followup.send("I need View Channel, Send Messages and Embed Links in that channel.", ephemeral=True)
             await interaction.followup.send(f"Dashboard published: {message.jump_url}", ephemeral=True)
         else:
-            await interaction.response.send_message(embed=dashboard_embed(), view=DashboardView(), ephemeral=True)
+            await interaction.response.send_message(view=DashboardView(), ephemeral=True)
 
 
 async def setup(bot):
