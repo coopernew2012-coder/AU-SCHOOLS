@@ -11,6 +11,23 @@ class Utility(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    @app_commands.command(name="say", description="Send a message as AU Schools in a channel.")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.describe(message="Message to send.", channel="Destination; defaults to this channel.")
+    async def say(self, interaction: discord.Interaction, message: app_commands.Range[str, 1, 2000], channel: discord.TextChannel | None = None):
+        if not interaction.user.guild_permissions.manage_messages:
+            return await interaction.response.send_message("Manage Messages permission is required.", ephemeral=True)
+        destination = channel or interaction.channel
+        if not destination.permissions_for(interaction.user).view_channel or not destination.permissions_for(interaction.user).send_messages:
+            return await interaction.response.send_message("You need permission to send messages in that channel.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            sent = await destination.send(message, allowed_mentions=discord.AllowedMentions.none())
+        except discord.Forbidden:
+            return await interaction.followup.send("I cannot send messages in that channel.", ephemeral=True)
+        await interaction.followup.send(f"Message sent: {sent.jump_url}", ephemeral=True)
+
     @app_commands.command(name="ping", description="Check the bot's current latency.")
     @app_commands.guild_only()
     async def ping(self, interaction: discord.Interaction):

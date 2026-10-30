@@ -11,7 +11,7 @@ from config import DATA_DIR
 from database import get_db, get_setting, set_setting
 from utils import base_embed
 
-DESTINATION = 1563853563468447867
+DESTINATION = 1563853562176344166
 PARTNER_CHANNEL = 1563853561727811622
 TYPES = {
     'Support': ('🛡️', 'support', 'Private, high-priority support issues'),
@@ -324,10 +324,10 @@ class ThreadTickets(commands.Cog):
         async with self.lock(key):
             db = await get_db()
             try:
-                async with db.execute("SELECT thread_id FROM au_thread_tickets WHERE guild_id=? AND opener_id=? AND closed_at IS NULL AND stage!='failed'", tuple(map(str,key))) as cursor:
+                async with db.execute("SELECT thread_id FROM au_thread_tickets WHERE guild_id=? AND opener_id=? AND kind=? AND closed_at IS NULL AND stage!='failed'", (*map(str,key),kind)) as cursor:
                     existing = await cursor.fetchone()
                 if existing:
-                    return await interaction.followup.send(f"You already have an open ticket: <#{existing['thread_id']}>", ephemeral=True)
+                    return await interaction.followup.send(f"You already have an open ticket in this category: <#{existing['thread_id']}>", ephemeral=True)
                 if kind == 'Partnership':
                     async with db.execute("SELECT MAX(opened_at) AS last FROM au_thread_tickets WHERE guild_id=? AND opener_id=? AND kind='Partnership' AND stage!='failed'", tuple(map(str,key))) as cursor:
                         last = (await cursor.fetchone())['last']
