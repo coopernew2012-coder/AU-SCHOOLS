@@ -277,43 +277,7 @@ class TicketPanelEditModal(discord.ui.Modal, title="Edit Ticket Panel"):
         )
 
 
-class TicketPanelView(discord.ui.View):
-    """Standing panel: category dropdown. custom_id keeps it alive across restarts."""
-
-    def __init__(self, categories: list[dict] | None = None):
-        super().__init__(timeout=None)
-        if categories is None:
-            categories = [{"name": name, "emoji": CATEGORY_DETAILS[name][0]} for name in DEFAULT_QUESTIONS]
-        if categories:
-            select: discord.ui.Select = self.category_select
-            select.options = [
-                discord.SelectOption(
-                    label=c["name"][:100],
-                    value=c["name"][:100],
-                    emoji=c["emoji"] if len(c["emoji"]) <= 3 else None,
-                    description=CATEGORY_DETAILS.get(c["name"], ("", ""))[1] or None,
-                )
-                for c in categories[:25]
-            ]
-
-    @discord.ui.select(
-        placeholder="🎫 Pick what you need help with",
-        custom_id="pffa_ticket_select",
-        min_values=1,
-        max_values=1,
-    )
-    async def category_select(self, interaction: discord.Interaction, select: discord.ui.Select):
-        cog: TicketSystem = interaction.client.get_cog("TicketSystem")
-        if cog is None:
-            await interaction.response.send_message(
-                embed=error_embed("Ticket system not loaded."), ephemeral=True
-            )
-            return
-        choice = select.values[0]
-        cats = await get_categories(interaction.guild.id)
-        cat = next((c for c in cats if c["name"] == choice), None)
-        questions = cat["questions"] if cat else DEFAULT_QUESTIONS["Support"]
-        await interaction.response.send_modal(TicketQuestionsModal(cog, choice, questions))
+from cogs.thread_tickets import TicketPanelView, panel_embed
 
 
 class TicketControlView(discord.ui.View):
@@ -949,66 +913,27 @@ class TicketSystem(commands.Cog):
         default_permissions=discord.Permissions(administrator=True),
     )
 
-    @ticket_group.command(name="panel", description="Send or edit the ticket panel.")
-    @app_commands.describe(
-        action="send to post the panel in a channel, edit to change its title/description live.",
-        channel="Channel to post the panel in (required for send).",
-    )
-    @app_commands.choices(action=[
-        app_commands.Choice(name="send", value="send"),
-        app_commands.Choice(name="edit", value="edit"),
-        app_commands.Choice(name="preview", value="preview"),
-    ])
+    @ticket_group.command(name="panel", description="Send the AU Schools ticket dropdown to a channel.")
+    @app_commands.describe(action="Send the ticket panel.", channel="Channel to post the ticket panel in.")
+    @app_commands.choices(action=[app_commands.Choice(name="send", value="send")])
     @app_commands.default_permissions(administrator=True)
-    async def panel(
-        self, interaction: discord.Interaction, action: str,
-        channel: discord.TextChannel | None = None,
-    ):
-        if action == "edit":
-            title, desc = await get_panel_text(interaction.guild.id)
-            await interaction.response.send_modal(TicketPanelEditModal(title, desc))
-            return
-
-        if action == "preview":
-            title, desc = await get_panel_text(interaction.guild.id)
-            await interaction.response.send_message(embed=base_embed(title=title, description=desc), ephemeral=True)
-            return
-
-        # action == "send"
-        if channel is None:
-            await interaction.response.send_message(
-                embed=error_embed("Pick a channel to send the panel to."), ephemeral=True
-            )
-            return
-
-        cats = await get_categories(interaction.guild.id)
-        title, desc = await get_panel_text(interaction.guild.id)
-
-        embed = base_embed(title=title, description=desc)
-        embed.set_thumbnail(url="https://raw.githubusercontent.com/coopernew2012-coder/AU-SCHOOLS/main/assets/au-schools-logo.png")
-        view = TicketPanelView(cats)
+    async def panel(self, interaction: discord.Interaction, action: str, channel: discord.TextChannel):
+        if action != "send":
+            return await interaction.response.send_message("Use action:send to post the ticket panel.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        embed = panel_embed()
         try:
-            msg = await channel.send(embed=embed, view=view)
+            msg = await channel.send(embed=embed, view=TicketPanelView())
         except discord.Forbidden:
-            await interaction.response.send_message(
-                embed=error_embed("I lack permission to post in that channel."), ephemeral=True
-            )
-            return
-
+            return await interaction.followup.send("I need View Channel, Send Messages and Embed Links there.", ephemeral=True)
         db = await get_db()
         try:
-            await db.execute("DELETE FROM ticket_panels WHERE guild_id=?", (str(interaction.guild.id),))
-            await db.execute(
-                "INSERT INTO ticket_panels (guild_id, channel_id, message_id, embed_title, embed_desc) VALUES (?, ?, ?, ?, ?)",
-                (str(interaction.guild.id), str(channel.id), str(msg.id), title, desc),
-            )
+            await db.execute("INSERT INTO ticket_panels (guild_id,channel_id,message_id,embed_title,embed_desc) VALUES (?,?,?,?,?)",
+                (str(interaction.guild.id),str(channel.id),str(msg.id),"AU Schools",embed.description))
             await db.commit()
         finally:
             await db.close()
-
-        await interaction.response.send_message(
-            embed=success_embed(f"Ticket panel sent to {channel.mention}."), ephemeral=True
-        )
+        await interaction.followup.send(f"Ticket panel sent: {msg.jump_url}", ephemeral=True)
 
     config_group = app_commands.Group(
         name="config",

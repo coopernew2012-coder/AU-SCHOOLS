@@ -22,7 +22,7 @@ ACCESS_ROLE_ID = int(os.getenv("ACCESS_ROLE_ID", "0") or 0)
 # (config, editing, moderation, ... — including the whole /apply setup
 # group) is staff-only. /link stays public so players can claim their
 # in-game linking code.
-PUBLIC_COMMANDS = {"dashboard"}
+PUBLIC_COMMANDS = {"close", "claim", "unclaim", "partnerclose", "transcript"}
 
 
 class AccessDenied(app_commands.CheckFailure):
@@ -53,9 +53,8 @@ class AUSchoolsBot(commands.Bot):
         self.tree.interaction_check = self._access_check
 
         cogs_dir = os.path.join(os.path.dirname(__file__), "cogs")
-        enabled_cogs = {"dashboard", "admin_config", "applications", "autorole", "moderation",
-                        "roles", "softban", "staff", "tickets", "utility",
-                        "verify", "warnings", "welcome"}
+        enabled_cogs = {"thread_tickets", "autorole", "moderation", "roles",
+                        "softban", "staff", "tickets", "utility", "warnings", "welcome"}
         for filename in sorted(os.listdir(cogs_dir)):
             if filename[:-3] not in enabled_cogs:
                 continue
@@ -66,6 +65,8 @@ class AUSchoolsBot(commands.Bot):
                     print(f"Loaded: {ext}")
                 except Exception as e:
                     print(f"Failed to load {ext}: {e}")
+
+        self.apply_command_policy()
 
         # Start cog-owned background tasks (giveaway expiry, poll tallying,
         # level role sync, player count, softmute expiry, ...).
@@ -79,6 +80,23 @@ class AUSchoolsBot(commands.Bot):
             print(f"Synced {len(synced)} global commands.")
         except Exception as e:
             print(f"Failed to sync commands: {e}")
+
+    def apply_command_policy(self):
+        """Expose operational commands, never panel/feature editors."""
+        for name in ("dashboard", "admin-config", "apply", "ad", "autorole", "welcome", "staff",
+                     "verify_setup", "verify_delete", "masskick", "blacklistedaddons",
+                     "edit-blacklistedaddons", "edit-rules", "edit-serverinfo"):
+            self.tree.remove_command(name)
+        for root, allowed in {
+            "ticket": {"panel"},
+            "partnership": {"request-proof", "reset-cooldown"},
+            "softban": {"user", "unsoftban", "history"},
+        }.items():
+            group = self.tree.get_command(root)
+            if isinstance(group, app_commands.Group):
+                for child in list(group.commands):
+                    if child.name not in allowed:
+                        group.remove_command(child.name)
 
     async def _access_check(self, interaction: discord.Interaction) -> bool:
         """Global slash-command gate.
