@@ -6,12 +6,18 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 os.environ['DATA_DIR']=tempfile.mkdtemp(prefix='au-dm-tests-')
 import discord
 from database import init_db,get_db
-from cogs.thread_tickets import ThreadTickets,StaffApplicationView,StaffDecisionModal,schema,record,update
+from cogs.thread_tickets import ThreadTickets,StaffApplicationView,StaffDecisionModal,schema,record,update,staff_application_embeds,application_decision_embed,STAFF_QUESTIONS
 import cogs.tickets as legacy
 async def run():
  await init_db();await schema()
+ assert STAFF_QUESTIONS.startswith('1) Why do you want to become staff?')
+ long=staff_application_embeds(10,'test.applicant',[("Question",'x'*12000)])
+ assert all(len(e)<=5500 for e in long)
+ assert ''.join(f.value for e in long for f in e.fields)=='x'*12000
+ assert application_decision_embed('deny','Reason').title=='Application Denied'
+ assert 'Your application for **Staff** has been **accepted**.' in application_decision_embed('accept','Reason').description
  dm=NS(id=100,send=AsyncMock())
- user=NS(id=10,mention='<@10>',create_dm=AsyncMock(return_value=dm),send=AsyncMock())
+ user=NS(id=10,name='test.applicant',mention='<@10>',create_dm=AsyncMock(return_value=dm),send=AsyncMock())
  child=NS(id=55,add_user=AsyncMock(),send=AsyncMock(return_value=NS(id=66)),delete=AsyncMock())
  parent=NS(create_thread=AsyncMock(return_value=child))
  bot=NS(wait_for=AsyncMock(side_effect=[NS(content=f'Answer {i}',attachments=[]) for i in range(6)]))
@@ -23,6 +29,8 @@ async def run():
  args=child.send.call_args.kwargs
  assert [x.label for x in args['view'].children]==['Deny','Accept','Hold']
  assert user in args['allowed_mentions'].users
+ assert 'file' not in args and 'files' not in args
+ assert 'test.applicant' in args['embed'].description and '`10`' in args['embed'].description
  assert not cog._staff_interviews
  # Manual close saves a transcript and deletes, rather than archiving.
  child.guild=NS(id=1);child.name='staffapply-1'

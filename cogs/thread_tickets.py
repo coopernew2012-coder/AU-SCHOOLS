@@ -1,6 +1,5 @@
 """Persistent private-thread tickets and reviewed partnership exchanges."""
 import asyncio
-import io
 import json
 import re
 import time
@@ -23,7 +22,7 @@ TYPES = {
 }
 TAGS = ['Java', 'Bedrock', 'SMP', 'Lifesteal', 'PvP', 'Survival', 'Crossplay', 'Cracked', 'Vanilla', 'Minigames', 'Factions', 'Economy', 'Modded', 'PvE', 'Whitelist', 'Europe', 'North America', 'Asia', 'Australia', 'Oceania']
 INVITE = re.compile(r'(?:https?://)?(?:www\.)?(?:discord\.gg|discord(?:app)?\.com/invite)/([A-Za-z0-9-]+)', re.I)
-STAFF_QUESTIONS = '1) Do you have past/current staffing experience?\n2) How many partnerships can you do per week?\n3) How active can you be on the server?\n4) Why do you want to be a staff member?\n5) What makes you different from other applicants?\n6) Tell us about yourself.'
+STAFF_QUESTIONS = '1) Why do you want to become staff?\n2) Do you have prior moderation experience?\n3) How would you handle a conflict between two members?\n4) How many hours per week can you commit?\n5) Have you ever filled this position before in any other servers?\n6) What extent of knowledge/experience do you have with this role/position?'
 NO_MENTIONS = discord.AllowedMentions.none()
 
 
@@ -55,6 +54,28 @@ def panel_embed():
     ))
 
 
+def staff_application_embeds(user_id, username, answers):
+    embeds=[]
+    embed=base_embed(title='AU Schools | Staff Application',description=f'**Applicant:** <@{user_id}>\n**Discord username:** {username}\n**User ID:** `{user_id}`\n**Status:** Awaiting review')
+    for number,(question,answer) in enumerate(answers,1):
+        text=answer or 'No answer provided'
+        for offset in range(0,len(text),1000):
+            name=(f'{number}. {question}' if offset==0 else f'{number}. Answer continued')[:256]
+            chunk=text[offset:offset+1000]
+            if len(embed)+len(name)+len(chunk)>5500 or len(embed.fields)>=25:
+                embeds.append(embed)
+                embed=base_embed(title='Staff Application | Answers continued')
+            embed.add_field(name=name,value=chunk,inline=False)
+    embeds.append(embed)
+    return embeds
+
+
+def application_decision_embed(action,reason):
+    title={'accept':'Application Accepted','deny':'Application Denied','hold':'Application On Hold'}[action]
+    word={'accept':'accepted','deny':'denied','hold':'placed on hold'}[action]
+    return base_embed(title=title,description=f'Your application for **Staff** has been **{word}**.\n\n**Reason:** {reason}')
+
+
 async def schema():
     db = await get_db()
     try:
@@ -80,6 +101,8 @@ async def schema():
             await db.execute('ALTER TABLE au_thread_tickets ADD COLUMN delete_after REAL')
         if 'answers_json' not in columns:
             await db.execute('ALTER TABLE au_thread_tickets ADD COLUMN answers_json TEXT')
+        if 'applicant_username' not in columns:
+            await db.execute('ALTER TABLE au_thread_tickets ADD COLUMN applicant_username TEXT')
         await db.commit()
     finally:
         await db.close()
@@ -96,7 +119,7 @@ async def record(thread_id):
 
 
 async def update(thread_id, **values):
-    allowed = {'stage', 'closed_at', 'ad', 'invite', 'server_id', 'server_name', 'server_icon', 'member_count', 'tags', 'proof_url', 'tag_message_id', 'review_message_id', 'publication_id', 'denials', 'reviewer_id', 'rule_ours', 'rule_theirs', 'claimed_by', 'delete_after', 'answers_json'}
+    allowed = {'stage', 'closed_at', 'ad', 'invite', 'server_id', 'server_name', 'server_icon', 'member_count', 'tags', 'proof_url', 'tag_message_id', 'review_message_id', 'publication_id', 'denials', 'reviewer_id', 'rule_ours', 'rule_theirs', 'claimed_by', 'delete_after', 'answers_json', 'applicant_username'}
     if not values or not values.keys() <= allowed:
         raise ValueError('Invalid ticket update')
     db = await get_db()
@@ -312,7 +335,7 @@ class StaffDecisionModal(discord.ui.Modal,title='Staff Application Review'):
             await interaction.channel.send(embed=base_embed(title='Staff Application '+word.title(),description=f"**Applicant:** <@{rec['opener_id']}>\n**Reviewed by:** {interaction.user.mention}\n**Reason:** {self.reason.value}"),allowed_mentions=NO_MENTIONS)
             try:
                 applicant=self.cog.bot.get_user(int(rec['opener_id'])) or await self.cog.bot.fetch_user(int(rec['opener_id']))
-                await applicant.send(embed=base_embed(title='AU Schools | Staff Application',description=f'Your application has been **{word}**.\n\n**Reason:** {self.reason.value}'))
+                await applicant.send(embed=application_decision_embed(self.action,self.reason.value))
             except discord.HTTPException:
                 pass
             if self.action=='hold':
@@ -446,7 +469,9 @@ class ThreadTickets(commands.Cog):
             questions=[line.split(') ',1)[1] for line in STAFF_QUESTIONS.splitlines()]
             answers=[]
             for i,question in enumerate(questions,1):
-                await dm.send(embed=base_embed(title=f'Staff Application | {i}/{len(questions)}',description=question))
+                question_embed=base_embed(title=f'Q{i}/{len(questions)}',description=question)
+                question_embed.set_footer(text="Type 'cancel' to abort. 5 min timeout per question.")
+                await dm.send(embed=question_embed)
                 def check(message):
                     return message.author.id==interaction.user.id and message.channel.id==dm.id
                 try:
@@ -461,7 +486,7 @@ class ThreadTickets(commands.Cog):
                 answers.append((question,answer or 'No answer provided'))
             db=await get_db()
             try:
-                cursor=await db.execute("INSERT INTO au_thread_tickets(guild_id,opener_id,kind,stage,opened_at,answers_json) VALUES(?,?,'Staff Apply','creating',?,?)",(str(key[0]),str(key[1]),time.time(),json.dumps(answers)))
+                cursor=await db.execute("INSERT INTO au_thread_tickets(guild_id,opener_id,kind,stage,opened_at,answers_json,applicant_username) VALUES(?,?,'Staff Apply','creating',?,?,?)",(str(key[0]),str(key[1]),time.time(),json.dumps(answers),interaction.user.name))
                 number=cursor.lastrowid
                 await db.commit()
             finally:
@@ -474,11 +499,13 @@ class ThreadTickets(commands.Cog):
                 for member in role.members:
                     if not member.bot:
                         await thread.add_user(member)
-            embed=base_embed(title='AU Schools | Staff Application',description=f'**Applicant:** {interaction.user.mention}\n**Status:** Awaiting review')
-            for question,answer in answers:
-                embed.add_field(name=question[:160],value=answer[:650],inline=False)
-            full='\n\n'.join(f'{i}. {q}\n{a}' for i,(q,a) in enumerate(answers,1))
-            review=await thread.send(f'{interaction.user.mention} **staff app submitted.**',embed=embed,file=discord.File(io.BytesIO(full.encode('utf-8')),filename='staff-application.txt'),view=StaffApplicationView(),allowed_mentions=discord.AllowedMentions(everyone=False,roles=False,users=[interaction.user]))
+            embeds=staff_application_embeds(interaction.user.id,interaction.user.name,answers)
+            for index,embed in enumerate(embeds):
+                review=await thread.send(
+                    f'{interaction.user.mention} **staff app submitted.**' if index==0 else None,
+                    embed=embed,view=StaffApplicationView() if index==len(embeds)-1 else None,
+                    allowed_mentions=discord.AllowedMentions(everyone=False,roles=False,users=[interaction.user]),
+                )
             db=await get_db()
             try:
                 await db.execute("UPDATE au_thread_tickets SET thread_id=?,stage='app_review',review_message_id=? WHERE number=?",(str(thread.id),str(review.id),number))
