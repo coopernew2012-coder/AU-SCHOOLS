@@ -174,8 +174,8 @@ class CloseThreadView(discord.ui.View):
     async def close(self, interaction, button):
         rec = await record(interaction.channel.id)
         cog = interaction.client.get_cog('ThreadTickets')
-        if not rec or (rec['opener_id'] != str(interaction.user.id) and not await cog.is_staff(interaction, rec)):
-            return await interaction.response.send_message('Only the opener or authorised staff can close this ticket.', ephemeral=True)
+        if not rec or not await cog.is_staff(interaction, rec):
+            return await interaction.response.send_message('Authorised ticket staff only.', ephemeral=True)
         await interaction.response.send_modal(CloseModal(cog))
 
 
@@ -186,7 +186,7 @@ class CloseModal(discord.ui.Modal, title='Close Ticket'):
         self.cog = cog
     async def on_submit(self, interaction):
         rec = await record(interaction.channel.id)
-        if not rec or (rec['opener_id'] != str(interaction.user.id) and not await self.cog.is_staff(interaction, rec)):
+        if not rec or not await self.cog.is_staff(interaction, rec):
             return await interaction.response.send_message('You cannot close this ticket.', ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         async with self.cog.lock(interaction.channel.id):
@@ -811,8 +811,8 @@ class ThreadTickets(commands.Cog):
             return await interaction.response.send_message('Use this command inside an open partnership ticket.' if partnership_only else 'Use this command inside a ticket thread.',ephemeral=True)
         if rec['closed_at']:
             return await interaction.response.send_message('This ticket is already closed.',ephemeral=True)
-        if rec['opener_id']!=str(interaction.user.id) and not await self.is_staff(interaction,rec):
-            return await interaction.response.send_message('Only the opener or authorised staff can close this ticket.',ephemeral=True)
+        if not await self.is_staff(interaction,rec):
+            return await interaction.response.send_message('Authorised ticket staff only.',ephemeral=True)
         await interaction.response.send_modal(CloseModal(self))
 
     @app_commands.command(name='close',description='Close this ticket with a reason and save its transcript.')
@@ -854,7 +854,7 @@ class ThreadTickets(commands.Cog):
     @app_commands.guild_only()
     async def transcript(self,interaction:discord.Interaction):
         rec=await record(interaction.channel.id)
-        if not rec or (rec['opener_id']!=str(interaction.user.id) and not await self.is_staff(interaction,rec)):
+        if not rec or not await self.is_staff(interaction,rec):
             return await interaction.response.send_message('You cannot export this ticket.',ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         from cogs.tickets import generate_transcript

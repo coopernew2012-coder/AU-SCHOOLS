@@ -27,8 +27,8 @@ async def run():
  assert [call.args[0].id for call in thread.add_user.call_args_list]==[28]
  assert [call.args[0].id for call in thread.remove_user.call_args_list]==[18]
  async with AUSchoolsBot() as client:
-  for candidate,allowed in [(mod,False),(admin,True),(senior,True)]:
-   interaction=NS(user=candidate,guild=guild,namespace=NS(member=None,user=None),command=NS(qualified_name='ban'),response=NS(send_message=AsyncMock()))
+  for command_name,candidate,allowed in [('ban',mod,False),('ban',admin,True),('ban',senior,True),('close',low,False),('close',mod,True),('claim',mod,True),('partnerclose',mod,True),('ticket panel',mod,True),('partnership request-proof',mod,True)]:
+   interaction=NS(user=candidate,guild=guild,namespace=NS(member=None,user=None),command=NS(qualified_name=command_name),response=NS(send_message=AsyncMock()))
    try:result=await client._access_check(interaction)
    except AccessDenied:result=False
    assert bool(result)==allowed
