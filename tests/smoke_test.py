@@ -36,7 +36,7 @@ async def run():
  assert '@everyone' not in clean_ad('Ad @everyone @here')
  dest=MagicMock(spec=discord.TextChannel);dest.id=500;dest.history=history;dest.send=AsyncMock(return_value=NS(id=777))
  guild=NS(id=1,get_channel=lambda _:dest)
- thread=MagicMock(spec=discord.Thread);thread.id=1001;thread.guild=guild;thread.name='🤝 | partnership-#1';thread.mention='<#1001>';thread.edit=AsyncMock();thread.send=AsyncMock(return_value=NS(id=2002,attachments=[NS(url='https://cdn.example/proof.png')]))
+ thread=MagicMock(spec=discord.Thread);thread.id=1001;thread.guild=guild;thread.name='🤝 | partnership-#1';thread.mention='<#1001>';thread.edit=AsyncMock();thread.send=AsyncMock(return_value=NS(id=2002,attachments=[],embeds=[discord.Embed().set_image(url='https://cdn.example/proof.png')]))
  bot=NS(user=NS(id=900),fetch_invite=AsyncMock(return_value=NS(guild=NS(id=99,name='Minecraft Community',icon=None),approximate_member_count=150)))
  cog=ThreadTickets(bot)
  db=await get_db();await db.execute("INSERT INTO au_thread_tickets(guild_id,opener_id,kind,thread_id,stage,opened_at) VALUES ('1','10','Partnership','1001','ad',?)",(time.time(),));await db.commit();await db.close()
@@ -56,9 +56,17 @@ async def run():
  cog.is_staff=AsyncMock(return_value=True)
  async def close_stub(channel,user,reason,status='closed'):await update(channel.id,stage=status,closed_at=time.time())
  cog.close_thread=AsyncMock(side_effect=close_stub)
- await cog.accept(interaction(cog,thread,uid=22));await cog.accept(interaction(cog,thread,uid=22))
+ # Reproduce the old stuck-proof bug and verify Accept repairs the saved review state.
+ await update(1001,stage='proof',review_message_id=None)
+ approval=interaction(cog,thread,uid=22)
+ approval.message.id=2002;approval.message.author=NS(id=900)
+ approval.message.embeds=[discord.Embed(title='🔍 Partnership Application — Staff Review').set_image(url='https://cdn.example/proof.png')]
+ await cog.accept(approval);await cog.accept(interaction(cog,thread,uid=22))
  dest.send.assert_awaited_once();cog.close_thread.assert_awaited_once();assert (await record(1001))['stage']=='approved'
  assert dest.send.call_args.kwargs['content']=='@everyone'
+ assert '#java\n#bedrock\n#smp' in dest.send.call_args.kwargs['embed'].description
+ assert not dest.send.call_args.kwargs['embed'].fields
+ assert ReviewView().deny.label=='Deny'
  assert dest.send.call_args.kwargs['allowed_mentions'].everyone is True
  print('PASS: all ping boundaries/minimum; persistent five-type panel and 20 tag buttons; tag limit and ownership; advertisement/invite -> tags -> proof -> review -> publication/close; repeated approval publishes once; mentions constrained to agreed tier.')
 asyncio.run(run())

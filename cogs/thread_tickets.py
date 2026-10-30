@@ -44,6 +44,11 @@ def clean_ad(text):
     return re.sub(r'@(everyone|here)', '', text, flags=re.I).strip()
 
 
+def partnership_ad(ad,tags):
+    hashtags=['#'+re.sub(r'[^a-z0-9]+','-',tag.lower()).strip('-') for tag in tags]
+    return clean_ad(ad)+'\n\n'+'\n'.join(hashtags)
+
+
 def panel_embed():
     return discord.Embed(colour=0x155E32, description=(
         '🛡️ **__Support__**\nOnly for private high priority issues.\n\n'
@@ -238,11 +243,11 @@ class TagView(discord.ui.View):
 class ReviewView(discord.ui.View):
     def __init__(self, denials=0):
         super().__init__(timeout=None)
-        self.deny.label = f'Deny ({denials}/3)'
+        self.deny.label = 'Deny'
     @discord.ui.button(label='Accept', emoji='✅', style=discord.ButtonStyle.success, custom_id='au_partner_accept')
     async def accept(self, interaction, button):
         await interaction.client.get_cog('ThreadTickets').accept(interaction)
-    @discord.ui.button(label='Deny (0/3)', emoji='❌', style=discord.ButtonStyle.danger, custom_id='au_partner_deny')
+    @discord.ui.button(label='Deny', emoji='❌', style=discord.ButtonStyle.danger, custom_id='au_partner_deny')
     async def deny(self, interaction, button):
         rec = await record(interaction.channel.id)
         cog = interaction.client.get_cog('ThreadTickets')
@@ -265,17 +270,11 @@ class DenyModal(discord.ui.Modal, title='Deny Partnership'):
             rec = await record(interaction.channel.id)
             if rec['stage'] != 'review':
                 return await interaction.followup.send('This partnership is not awaiting review.', ephemeral=True)
-            votes = json.loads(rec['denials'])
-            if str(interaction.user.id) in votes:
-                return await interaction.followup.send('Your denial has already been recorded.', ephemeral=True)
-            votes.append(str(interaction.user.id))
-            await update(interaction.channel.id, denials=json.dumps(votes))
-            await interaction.channel.send(embed=base_embed(title='Partnership review', description=f'{interaction.user.mention} voted to deny.\n**Reason:** {self.reason.value}'), allowed_mentions=NO_MENTIONS)
-            message = await interaction.channel.fetch_message(int(rec['review_message_id']))
-            await message.edit(view=ReviewView(len(votes)) if len(votes)<3 else None)
-            if len(votes)>=3:
-                await self.cog.close_thread(interaction.channel, interaction.user, 'Denied by three reviewers', status='denied')
-            await interaction.followup.send(f'Denial recorded ({len(votes)}/3).', ephemeral=True)
+            await update(interaction.channel.id, reviewer_id=str(interaction.user.id))
+            await interaction.channel.send(embed=base_embed(title='Partnership Denied', description=f"**Reviewed by:** {interaction.user.mention}\n**Reason:** {self.reason.value}"), allowed_mentions=NO_MENTIONS)
+            await self.cog.close_thread(interaction.channel,interaction.user,'Partnership denied: '+self.reason.value,status='denied')
+            await interaction.followup.send('Partnership denied and ticket deleted.',ephemeral=True)
+
 
 
 class AdModal(discord.ui.Modal, title='AU Schools Advertisement'):
@@ -513,7 +512,7 @@ class ThreadTickets(commands.Cog):
             finally:
                 await db.close()
             try:
-                await dm.send('✅ Staff app submitted')
+                await dm.send(f'✅ Staff app submitted\n\nView your application thread: <#{thread.id}>\nhttps://discord.com/channels/{interaction.guild.id}/{thread.id}')
             except discord.HTTPException:
                 pass
         except (discord.HTTPException,OSError) as error:
@@ -658,7 +657,8 @@ class ThreadTickets(commands.Cog):
                 if rec['server_icon']:
                     embed.set_thumbnail(url=rec['server_icon'])
                 review = await message.channel.send(f"🔍 **Staff Review — {message.author.mention}'s Application**", embed=embed, file=proof, view=ReviewView(), allowed_mentions=NO_MENTIONS)
-                await update(message.channel.id, stage='review', review_message_id=str(review.id), proof_url=review.attachments[0].url)
+                proof_url = review.embeds[0].image.url if review.embeds and review.embeds[0].image else image.url
+                await update(message.channel.id, stage='review', review_message_id=str(review.id), proof_url=proof_url)
                 await message.channel.edit(name=(message.channel.name+' | 🔍 Under review')[:100])
 
     async def accept(self, interaction):
@@ -668,8 +668,14 @@ class ThreadTickets(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         async with self.lock(interaction.channel.id):
             rec = await record(interaction.channel.id)
+            if rec['stage']=='proof' and not rec['review_message_id']:
+                message=interaction.message
+                if message.author.id==self.bot.user.id and message.embeds and message.embeds[0].title=='🔍 Partnership Application — Staff Review' and message.embeds[0].image:
+                    await update(interaction.channel.id,stage='review',review_message_id=str(message.id),proof_url=message.embeds[0].image.url)
+                    rec=await record(interaction.channel.id)
             if rec['stage'] not in ('review', 'publishing', 'published'):
-                return await interaction.followup.send('This partnership has already been handled.', ephemeral=True)
+                detail='This partnership has already been handled.' if rec['closed_at'] else 'This partnership is not ready for review yet. Complete the advertisement, tags and screenshot steps first.'
+                return await interaction.followup.send(detail, ephemeral=True)
             channel_id = await get_setting(interaction.guild.id, 'partner_log_channel') or str(PARTNER_CHANNEL)
             dest = interaction.guild.get_channel(int(channel_id))
             if not isinstance(dest, discord.TextChannel):
@@ -699,9 +705,7 @@ class ThreadTickets(commands.Cog):
                     if ping_rule(count)!=(rec['rule_ours'],rec['rule_theirs']):
                         await update(interaction.channel.id, stage='review')
                         return await interaction.followup.send('The server moved to a different ping tier. Use /partnership request-proof to restart the agreement and proof step.', ephemeral=True)
-                    embed = base_embed(title=rec['server_name'][:256], description=clean_ad(rec['ad']))
-                    embed.add_field(name='Tags', value=', '.join(json.loads(rec['tags'])))
-                    embed.add_field(name='Invite', value=rec['invite'])
+                    embed = base_embed(title=rec['server_name'][:256], description=partnership_ad(rec['ad'],json.loads(rec['tags'])))
                     embed.set_footer(text=marker)
                     if rec['server_icon']:
                         embed.set_thumbnail(url=rec['server_icon'])
