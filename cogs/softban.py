@@ -1,3 +1,4 @@
+from ui_cards import card_from_embed
 import json
 import os
 import time
@@ -158,7 +159,7 @@ async def perform_softban(
             value="✅ Unbanned immediately" if result["unbanned"] else "⚠️ Unban failed — manual action required",
         )
         try:
-            await channel.send(embed=embed)
+            await channel.send(view=card_from_embed(embed,tone='info'))
         except discord.Forbidden:
             pass
 
@@ -175,11 +176,11 @@ class SoftbanPanelView(discord.ui.View):
     @discord.ui.button(label="How does this work?", style=discord.ButtonStyle.secondary, emoji="❓", custom_id="softban_info_btn")
     async def info(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(
-            embed=error_embed(
+            view=card_from_embed(error_embed(
                 "Sending **any message** in this channel softbans your own account: you are banned, "
                 "your last 7 days of messages are deleted, and you are immediately unbanned. "
                 "There is no warning and staff are notified."
-            ),
+            ),tone='danger'),
             ephemeral=True,
         )
 
@@ -194,7 +195,7 @@ class QuickSoftbanView(discord.ui.View):
     async def quick(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.user.guild_permissions.ban_members:
             await interaction.response.send_message(
-                embed=error_embed("You need **Ban Members** to use this."), ephemeral=True
+                view=card_from_embed(error_embed("You need **Ban Members** to use this."),tone='danger'), ephemeral=True
             )
             return
         await interaction.response.send_modal(QuickSoftbanModal())
@@ -218,7 +219,7 @@ class QuickSoftbanModal(discord.ui.Modal, title="Quick Softban"):
         raw = self.user_id_input.value.strip()
         if not raw.isdigit():
             await interaction.response.send_message(
-                embed=error_embed("That doesn't look like a user ID."), ephemeral=True
+                view=card_from_embed(error_embed("That doesn't look like a user ID."),tone='danger'), ephemeral=True
             )
             return
         user_id = int(raw)
@@ -228,7 +229,7 @@ class QuickSoftbanModal(discord.ui.Modal, title="Quick Softban"):
         member = interaction.guild.get_member(user_id)
         if member and (member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id):
             await interaction.followup.send(
-                embed=error_embed("You cannot moderate this user."), ephemeral=True
+                view=card_from_embed(error_embed("You cannot moderate this user."),tone='danger'), ephemeral=True
             )
             return
 
@@ -237,21 +238,21 @@ class QuickSoftbanModal(discord.ui.Modal, title="Quick Softban"):
         )
         if not result["ok"]:
             await interaction.followup.send(
-                embed=error_embed(f"Failed to softban: {result['error']}"), ephemeral=True
+                view=card_from_embed(error_embed(f"Failed to softban: {result['error']}"),tone='danger'), ephemeral=True
             )
             return
         if not result["unbanned"]:
             await interaction.followup.send(
-                embed=error_embed(
+                view=card_from_embed(error_embed(
                     "Softban completed but the automatic unban **failed** — unban them manually."
-                ),
+                ),tone='danger'),
                 ephemeral=True,
             )
             return
         await interaction.followup.send(
-            embed=success_embed(
+            view=card_from_embed(success_embed(
                 f"Softbanned <@{user_id}> — recent messages deleted, user is not permanently banned."
-            ),
+            ),tone='success'),
             ephemeral=True,
         )
 
@@ -279,12 +280,12 @@ class Softban(commands.Cog):
         if member:
             if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
                 await interaction.response.send_message(
-                    embed=error_embed("You cannot moderate this user."), ephemeral=True
+                    view=card_from_embed(error_embed("You cannot moderate this user."),tone='danger'), ephemeral=True
                 )
                 return
             if member.id == self.bot.user.id:
                 await interaction.response.send_message(
-                    embed=error_embed("I cannot softban myself."), ephemeral=True
+                    view=card_from_embed(error_embed("I cannot softban myself."),tone='danger'), ephemeral=True
                 )
                 return
 
@@ -295,23 +296,23 @@ class Softban(commands.Cog):
 
         if not result["ok"]:
             await interaction.followup.send(
-                embed=error_embed(f"Failed to softban: {result['error']}"), ephemeral=True
+                view=card_from_embed(error_embed(f"Failed to softban: {result['error']}"),tone='danger'), ephemeral=True
             )
             return
         if not result["unbanned"]:
             await interaction.followup.send(
-                embed=error_embed(
+                view=card_from_embed(error_embed(
                     f"{user.mention} was banned and recent messages deleted, but the automatic unban **failed**. "
                     "Please unban them manually with `/softban user` logic or the ban list."
-                ),
+                ),tone='danger'),
                 ephemeral=True,
             )
             return
 
         await interaction.followup.send(
-            embed=success_embed(
+            view=card_from_embed(success_embed(
                 f"Softbanned {user.mention} — recent messages deleted, user is **not** permanently banned."
-            ),
+            ),tone='success'),
             ephemeral=True,
         )
 
@@ -325,7 +326,7 @@ class Softban(commands.Cog):
         removed = clear_softbans(interaction.guild.id, user.id)
         if not removed:
             await interaction.response.send_message(
-                embed=error_embed(f"No softban records for {user.mention}."), ephemeral=True
+                view=card_from_embed(error_embed(f"No softban records for {user.mention}."),tone='danger'), ephemeral=True
             )
             return
 
@@ -339,9 +340,9 @@ class Softban(commands.Cog):
             also_unbanned = " (⚠️ they appear to be banned but I couldn't unban — check manually)"
 
         await interaction.response.send_message(
-            embed=success_embed(
+            view=card_from_embed(success_embed(
                 f"Cleared {removed} softban record(s) for {user.mention}{also_unbanned}."
-            ),
+            ),tone='success'),
             ephemeral=True,
         )
 
@@ -358,7 +359,7 @@ class Softban(commands.Cog):
             embed.add_field(name="Moderator", value=interaction.user.mention)
             embed.add_field(name="Records Cleared", value=str(removed))
             try:
-                await channel.send(embed=embed)
+                await channel.send(view=card_from_embed(embed,tone='info'))
             except discord.Forbidden:
                 pass
 
@@ -402,11 +403,11 @@ class Softban(commands.Cog):
             await channel.send(embed=embed, view=QuickSoftbanView())
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("I lack permission to post in that channel."), ephemeral=True
+                view=card_from_embed(error_embed("I lack permission to post in that channel."),tone='danger'), ephemeral=True
             )
             return
         await interaction.followup.send(
-            embed=success_embed(f"Quick softban panel posted in {channel.mention}."), ephemeral=True
+            view=card_from_embed(success_embed(f"Quick softban panel posted in {channel.mention}."),tone='success'), ephemeral=True
         )
 
     @softban_group.command(name="set-channel", description="Set the channel where any message auto-softbans the sender.")
@@ -415,9 +416,9 @@ class Softban(commands.Cog):
     async def set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await set_setting(interaction.guild.id, "softban_channel", str(channel.id))
         await interaction.response.send_message(
-            embed=success_embed(
+            view=card_from_embed(success_embed(
                 f"Softban channel set to {channel.mention}. Messages there now trigger an instant softban."
-            ),
+            ),tone='success'),
             ephemeral=True,
         )
         await self.post_panel(channel)
@@ -427,7 +428,7 @@ class Softban(commands.Cog):
     async def clear_channel(self, interaction: discord.Interaction):
         await delete_setting(interaction.guild.id, "softban_channel")
         await interaction.response.send_message(
-            embed=success_embed("Softban channel disabled."), ephemeral=True
+            view=card_from_embed(success_embed("Softban channel disabled."),tone='success'), ephemeral=True
         )
 
     @softban_group.command(name="panel", description="Post or refresh the softban info panel in the configured channel.")
@@ -441,14 +442,14 @@ class Softban(commands.Cog):
         )
         if not channel:
             await interaction.response.send_message(
-                embed=error_embed("No softban channel configured. Use `/softban set-channel` first."),
+                view=card_from_embed(error_embed("No softban channel configured. Use `/softban set-channel` first."),tone='danger'),
                 ephemeral=True,
             )
             return
         await interaction.response.defer(ephemeral=True)
         await self.post_panel(channel)
         await interaction.followup.send(
-            embed=success_embed(f"Softban panel posted/refreshed in {channel.mention}."), ephemeral=True
+            view=card_from_embed(success_embed(f"Softban panel posted/refreshed in {channel.mention}."),tone='success'), ephemeral=True
         )
 
     async def post_panel(self, channel: discord.TextChannel):
@@ -498,7 +499,7 @@ class Softban(commands.Cog):
         if not me.guild_permissions.ban_members:
             try:
                 await message.channel.send(
-                    embed=error_embed("⚠️ I lack **Ban Members** permission — softban aborted.")
+                    view=card_from_embed(error_embed("⚠️ I lack **Ban Members** permission — softban aborted."),tone='danger')
                 )
             except discord.Forbidden:
                 pass
@@ -520,7 +521,7 @@ class Softban(commands.Cog):
         if not result["ok"]:
             try:
                 await message.channel.send(
-                    embed=error_embed(f"⚠️ Failed to softban {message.author.mention}: {result['error']}")
+                    view=card_from_embed(error_embed(f"⚠️ Failed to softban {message.author.mention}: {result['error']}"),tone='danger')
                 )
             except discord.Forbidden:
                 pass

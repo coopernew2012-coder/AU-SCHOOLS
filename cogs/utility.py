@@ -1,3 +1,4 @@
+from ui_cards import card_from_embed
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -33,7 +34,7 @@ class Utility(commands.Cog):
     async def ping(self, interaction: discord.Interaction):
         latency = round(self.bot.latency * 1000)
         embed = base_embed(title="Pong!", description=f"Latency: **{latency}ms**")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(view=card_from_embed(embed,tone='info'))
 
     @app_commands.command(name="server-info", description="Display detailed information about this server.")
     @app_commands.guild_only()
@@ -53,7 +54,7 @@ class Utility(commands.Cog):
         embed.add_field(name="Boost Tier", value=str(guild.premium_tier))
         embed.add_field(name="Emojis", value=f"{len(guild.emojis)}/{guild.emoji_limit}")
         embed.set_footer(text=f"Server ID: {guild.id}")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(view=card_from_embed(embed,tone='info'))
 
     @app_commands.command(name="user-info", description="Display detailed information about yourself or another member.")
     @app_commands.describe(member="User to inspect (defaults to you).")
@@ -69,7 +70,7 @@ class Utility(commands.Cog):
         roles = [r.mention for r in reversed(member.roles) if r.name != "@everyone"]
         embed.add_field(name=f"Roles ({len(roles)})", value=" ".join(roles) if roles else "None", inline=False)
         embed.set_footer(text=f"Requested by {interaction.user.name}")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(view=card_from_embed(embed,tone='info'))
 
     @app_commands.command(name="role-info", description="Display detailed information about a specific role.")
     @app_commands.describe(role="Role to inspect.")
@@ -84,7 +85,7 @@ class Utility(commands.Cog):
         embed.add_field(name="Members", value=str(len(role.members)))
         embed.add_field(name="Created", value=discord.utils.format_dt(role.created_at, style="F"))
         embed.set_footer(text=f"Role ID: {role.id}")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(view=card_from_embed(embed,tone='info'), ephemeral=True)
 
     @app_commands.command(name="avatar", description="Display a user's avatar in full size.")
     @app_commands.describe(member="User whose avatar to display.")
@@ -93,7 +94,7 @@ class Utility(commands.Cog):
         member = member or interaction.user
         embed = base_embed(title=f"{member.display_name}'s Avatar")
         embed.set_image(url=member.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(view=card_from_embed(embed,tone='info'))
 
     @app_commands.command(name="slowmode", description="Set the slowmode delay for the current channel (0 to disable).")
     @app_commands.describe(seconds="Slowmode delay (0 to disable).")
@@ -103,11 +104,11 @@ class Utility(commands.Cog):
         await interaction.channel.edit(slowmode_delay=seconds)
         if seconds == 0:
             await interaction.response.send_message(
-                embed=success_embed("Slowmode disabled."), ephemeral=True
+                view=card_from_embed(success_embed("Slowmode disabled."),tone='success'), ephemeral=True
             )
         else:
             await interaction.response.send_message(
-                embed=success_embed(f"Slowmode set to **{seconds}s**."), ephemeral=True
+                view=card_from_embed(success_embed(f"Slowmode set to **{seconds}s**."),tone='success'), ephemeral=True
             )
 
     @app_commands.command(name="lock", description="Lock a channel to prevent @everyone from sending messages.")
@@ -118,7 +119,7 @@ class Utility(commands.Cog):
         channel = channel or interaction.channel
         await channel.set_permissions(interaction.guild.default_role, send_messages=False)
         await interaction.response.send_message(
-            embed=success_embed(f"🔒 {channel.mention} has been locked."), ephemeral=True
+            view=card_from_embed(success_embed(f"🔒 {channel.mention} has been locked."),tone='success'), ephemeral=True
         )
 
     @app_commands.command(name="unlock", description="Unlock a channel to allow @everyone to send messages again.")
@@ -129,7 +130,7 @@ class Utility(commands.Cog):
         channel = channel or interaction.channel
         await channel.set_permissions(interaction.guild.default_role, send_messages=True)
         await interaction.response.send_message(
-            embed=success_embed(f"🔓 {channel.mention} has been unlocked."), ephemeral=True
+            view=card_from_embed(success_embed(f"🔓 {channel.mention} has been unlocked."),tone='success'), ephemeral=True
         )
 
 
@@ -152,12 +153,12 @@ class Utility(commands.Cog):
             deleted = await interaction.channel.purge(limit=count, check=check)
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("Missing permissions to delete messages."),
+                view=card_from_embed(error_embed("Missing permissions to delete messages."),tone='danger'),
                 ephemeral=True,
             )
             return
         await interaction.followup.send(
-            embed=success_embed(f"Purged {len(deleted)} messages from {member.mention}."),
+            view=card_from_embed(success_embed(f"Purged {len(deleted)} messages from {member.mention}."),tone='success'),
             ephemeral=True,
         )
 

@@ -1,3 +1,4 @@
+from ui_cards import card_from_embed
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -19,7 +20,7 @@ async def log_role_action(bot, guild, action, moderator, target, role, reason=No
     if reason:
         embed.add_field(name="Reason", value=reason, inline=False)
     try:
-        await channel.send(embed=embed)
+        await channel.send(view=card_from_embed(embed,tone='info'))
     except discord.Forbidden:
         pass
 
@@ -44,13 +45,13 @@ class RoleManagement(commands.Cog):
     ):
         if role >= interaction.guild.me.top_role:
             await interaction.response.send_message(
-                embed=error_embed("I cannot assign a role equal to or above my own highest role."),
+                view=card_from_embed(error_embed("I cannot assign a role equal to or above my own highest role."),tone='danger'),
                 ephemeral=True,
             )
             return
         if role in member.roles:
             await interaction.response.send_message(
-                embed=error_embed(f"{member.mention} already has {role.mention}."),
+                view=card_from_embed(error_embed(f"{member.mention} already has {role.mention}."),tone='danger'),
                 ephemeral=True,
             )
             return
@@ -59,13 +60,13 @@ class RoleManagement(commands.Cog):
             await member.add_roles(role, reason=reason)
         except discord.Forbidden:
             await interaction.response.send_message(
-                embed=error_embed("Missing permissions to add that role."),
+                view=card_from_embed(error_embed("Missing permissions to add that role."),tone='danger'),
                 ephemeral=True,
             )
             return
 
         await interaction.response.send_message(
-            embed=success_embed(f"Added {role.mention} to {member.mention}."),
+            view=card_from_embed(success_embed(f"Added {role.mention} to {member.mention}."),tone='success'),
             ephemeral=True,
         )
         await log_role_action(self.bot, interaction.guild, "Add Role", interaction.user, member, role, reason)
@@ -79,13 +80,13 @@ class RoleManagement(commands.Cog):
     ):
         if role >= interaction.guild.me.top_role:
             await interaction.response.send_message(
-                embed=error_embed("I cannot remove a role equal to or above my own highest role."),
+                view=card_from_embed(error_embed("I cannot remove a role equal to or above my own highest role."),tone='danger'),
                 ephemeral=True,
             )
             return
         if role not in member.roles:
             await interaction.response.send_message(
-                embed=error_embed(f"{member.mention} does not have {role.mention}."),
+                view=card_from_embed(error_embed(f"{member.mention} does not have {role.mention}."),tone='danger'),
                 ephemeral=True,
             )
             return
@@ -94,13 +95,13 @@ class RoleManagement(commands.Cog):
             await member.remove_roles(role, reason=reason)
         except discord.Forbidden:
             await interaction.response.send_message(
-                embed=error_embed("Missing permissions to remove that role."),
+                view=card_from_embed(error_embed("Missing permissions to remove that role."),tone='danger'),
                 ephemeral=True,
             )
             return
 
         await interaction.response.send_message(
-            embed=success_embed(f"Removed {role.mention} from {member.mention}."),
+            view=card_from_embed(success_embed(f"Removed {role.mention} from {member.mention}."),tone='success'),
             ephemeral=True,
         )
         await log_role_action(self.bot, interaction.guild, "Remove Role", interaction.user, member, role, reason)
@@ -133,10 +134,10 @@ class RoleManagement(commands.Cog):
                 failed += 1
 
         await interaction.followup.send(
-            embed=success_embed(
+            view=card_from_embed(success_embed(
                 f"Mass role {'add' if action == 'add' else 'remove'} complete.\n"
                 f"**{role.mention}**: {success} succeeded, {failed} failed ({len(members)} total)."
-            ),
+            ),tone='success'),
             ephemeral=True,
         )
 

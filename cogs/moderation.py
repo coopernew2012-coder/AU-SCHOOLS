@@ -1,3 +1,4 @@
+from ui_cards import card_from_embed
 import asyncio
 from datetime import timedelta
 import discord
@@ -31,7 +32,7 @@ async def log_action(
     if duration:
         embed.add_field(name="Duration", value=duration)
     try:
-        await channel.send(embed=embed)
+        await channel.send(view=card_from_embed(embed,tone='info'))
     except discord.Forbidden:
         pass
 
@@ -73,12 +74,12 @@ class Moderation(commands.Cog):
                     break  # channel is out of deletable messages
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("I lack **Manage Messages** permission in this channel."), ephemeral=True
+                view=card_from_embed(error_embed("I lack **Manage Messages** permission in this channel."),tone='danger'), ephemeral=True
             )
             return
         except discord.HTTPException as e:
             await interaction.followup.send(
-                embed=error_embed(f"Stopped after {deleted_total} messages: {e}"), ephemeral=True
+                view=card_from_embed(error_embed(f"Stopped after {deleted_total} messages: {e}"),tone='danger'), ephemeral=True
             )
             return
 
@@ -88,7 +89,7 @@ class Moderation(commands.Cog):
             else ""
         )
         await interaction.followup.send(
-            embed=success_embed(f"🧹 Deleted **{deleted_total}** messages from {interaction.channel.mention}.{skipped_note}"),
+            view=card_from_embed(success_embed(f"🧹 Deleted **{deleted_total}** messages from {interaction.channel.mention}.{skipped_note}"),tone='success'),
             ephemeral=True,
         )
         await log_action(
@@ -212,7 +213,7 @@ class Moderation(commands.Cog):
     ):
         if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
             await interaction.response.send_message(
-                embed=error_embed("You cannot moderate this user."), ephemeral=True
+                view=card_from_embed(error_embed("You cannot moderate this user."),tone='danger'), ephemeral=True
             )
             return
 
@@ -222,7 +223,7 @@ class Moderation(commands.Cog):
             delta = parse_duration(duration)
             if delta is None:
                 await interaction.response.send_message(
-                    embed=error_embed("Invalid duration format. Use e.g. `30m`, `2h`, `1d`."), ephemeral=True
+                    view=card_from_embed(error_embed("Invalid duration format. Use e.g. `30m`, `2h`, `1d`."),tone='danger'), ephemeral=True
                 )
                 return
             until_ts = discord.utils.utcnow() + delta
@@ -253,10 +254,10 @@ class Moderation(commands.Cog):
             await db.close()
 
         await interaction.followup.send(
-            embed=success_embed(
+            view=card_from_embed(success_embed(
                 f"{member.mention} softmuted for {dur_str} ({applied} channels"
                 + (f", {failed_channels} failed" if failed_channels else "") + ")."
-            ),
+            ),tone='success'),
             ephemeral=True,
         )
         await self.record_action(interaction.guild, member.id, "Softmute", reason, interaction.user.id)
@@ -294,7 +295,7 @@ class Moderation(commands.Cog):
             await db.close()
 
         await interaction.followup.send(
-            embed=success_embed(f"{member.mention} can send messages again ({restored} channels restored)."),
+            view=card_from_embed(success_embed(f"{member.mention} can send messages again ({restored} channels restored)."),tone='success'),
             ephemeral=True,
         )
         await log_action(self.bot, interaction.guild, "Unsoftmute", interaction.user, member)
@@ -355,12 +356,12 @@ class Moderation(commands.Cog):
         ids = [x.strip() for x in user_ids.replace(",", " ").split() if x.strip().isdigit()]
         if not ids:
             await interaction.followup.send(
-                embed=error_embed("Provide at least one valid user ID."), ephemeral=True
+                view=card_from_embed(error_embed("Provide at least one valid user ID."),tone='danger'), ephemeral=True
             )
             return
         if len(ids) > 25:
             await interaction.followup.send(
-                embed=error_embed("Maximum 25 users per massban."), ephemeral=True
+                view=card_from_embed(error_embed("Maximum 25 users per massban."),tone='danger'), ephemeral=True
             )
             return
 
@@ -380,7 +381,7 @@ class Moderation(commands.Cog):
         lines = [f"✅ Banned: {len(banned)}"]
         if failed:
             lines.append(f"❌ Failed: {len(failed)} (`{' '.join(failed[:10])}`)")
-        await interaction.followup.send(embed=success_embed("\n".join(lines)), ephemeral=True)
+        await interaction.followup.send(view=card_from_embed(success_embed("\n".join(lines)),tone='success'), ephemeral=True)
         await log_action(
             self.bot, interaction.guild, "Massban", interaction.user,
             interaction.user, reason=f"{len(banned)} banned, {len(failed)} failed — {reason or 'No reason'}",
@@ -406,7 +407,7 @@ class Moderation(commands.Cog):
         targets = [m for m in targets if m is not None]
         if not targets:
             await interaction.followup.send(
-                embed=error_embed("No valid members found."), ephemeral=True
+                view=card_from_embed(error_embed("No valid members found."),tone='danger'), ephemeral=True
             )
             return
 
@@ -425,7 +426,7 @@ class Moderation(commands.Cog):
         lines = [f"✅ Kicked: {len(kicked)}"]
         if failed:
             lines.append(f"❌ Failed: {len(failed)}")
-        await interaction.followup.send(embed=success_embed("\n".join(lines)), ephemeral=True)
+        await interaction.followup.send(view=card_from_embed(success_embed("\n".join(lines)),tone='success'), ephemeral=True)
         await log_action(
             self.bot, interaction.guild, "Masskick", interaction.user,
             interaction.user, reason=f"{len(kicked)} kicked, {len(failed)} failed — {reason or 'No reason'}",
@@ -449,9 +450,9 @@ class Moderation(commands.Cog):
         delta = parse_duration(duration)
         if delta is None:
             await interaction.response.send_message(
-                embed=error_embed(
+                view=card_from_embed(error_embed(
                     "Invalid duration format. Use e.g. `1h`, `30m`, `7d`, `2w`."
-                ),
+                ),tone='danger'),
                 ephemeral=True,
             )
             return
@@ -463,19 +464,19 @@ class Moderation(commands.Cog):
             await member.timeout(until, reason=reason)
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("I lack permissions to timeout that member."),
+                view=card_from_embed(error_embed("I lack permissions to timeout that member."),tone='danger'),
                 ephemeral=True,
             )
             return
         except discord.HTTPException as e:
             await interaction.followup.send(
-                embed=error_embed(f"Failed to mute: {e}"), ephemeral=True
+                view=card_from_embed(error_embed(f"Failed to mute: {e}"),tone='danger'), ephemeral=True
             )
             return
 
         dur_str = format_duration(delta)
         await interaction.followup.send(
-            embed=success_embed(f"{member.mention} has been muted for {dur_str}."),
+            view=card_from_embed(success_embed(f"{member.mention} has been muted for {dur_str}."),tone='success'),
             ephemeral=True,
         )
         await self.record_action(interaction.guild, member.id, "Mute", reason, interaction.user.id)
@@ -493,18 +494,18 @@ class Moderation(commands.Cog):
             await member.timeout(None)
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("I lack permissions to remove the timeout."),
+                view=card_from_embed(error_embed("I lack permissions to remove the timeout."),tone='danger'),
                 ephemeral=True,
             )
             return
         except discord.HTTPException as e:
             await interaction.followup.send(
-                embed=error_embed(f"Failed to unmute: {e}"), ephemeral=True
+                view=card_from_embed(error_embed(f"Failed to unmute: {e}"),tone='danger'), ephemeral=True
             )
             return
 
         await interaction.followup.send(
-            embed=success_embed(f"{member.mention} has been unmuted."),
+            view=card_from_embed(success_embed(f"{member.mention} has been unmuted."),tone='success'),
             ephemeral=True,
         )
         await log_action(self.bot, interaction.guild, "Unmute", interaction.user, member)
@@ -524,18 +525,18 @@ class Moderation(commands.Cog):
             await member.kick(reason=reason)
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("I lack permissions to kick that member."),
+                view=card_from_embed(error_embed("I lack permissions to kick that member."),tone='danger'),
                 ephemeral=True,
             )
             return
         except discord.HTTPException as e:
             await interaction.followup.send(
-                embed=error_embed(f"Failed to kick: {e}"), ephemeral=True
+                view=card_from_embed(error_embed(f"Failed to kick: {e}"),tone='danger'), ephemeral=True
             )
             return
 
         await interaction.followup.send(
-            embed=success_embed(f"{member.mention} has been kicked."),
+            view=card_from_embed(success_embed(f"{member.mention} has been kicked."),tone='success'),
             ephemeral=True,
         )
         await self.record_action(interaction.guild, member.id, "Kick", reason, interaction.user.id)
@@ -556,18 +557,18 @@ class Moderation(commands.Cog):
             await member.ban(reason=reason)
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("I lack permissions to ban that member."),
+                view=card_from_embed(error_embed("I lack permissions to ban that member."),tone='danger'),
                 ephemeral=True,
             )
             return
         except discord.HTTPException as e:
             await interaction.followup.send(
-                embed=error_embed(f"Failed to ban: {e}"), ephemeral=True
+                view=card_from_embed(error_embed(f"Failed to ban: {e}"),tone='danger'), ephemeral=True
             )
             return
 
         await interaction.followup.send(
-            embed=success_embed(f"{member.mention} has been banned."),
+            view=card_from_embed(success_embed(f"{member.mention} has been banned."),tone='success'),
             ephemeral=True,
         )
         await self.record_action(interaction.guild, member.id, "Ban", reason, interaction.user.id)
@@ -590,18 +591,18 @@ class Moderation(commands.Cog):
             deleted = await interaction.channel.purge(limit=count)
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("I lack permissions to delete messages."),
+                view=card_from_embed(error_embed("I lack permissions to delete messages."),tone='danger'),
                 ephemeral=True,
             )
             return
         except discord.HTTPException as e:
             await interaction.followup.send(
-                embed=error_embed(f"Failed to clear messages: {e}"), ephemeral=True
+                view=card_from_embed(error_embed(f"Failed to clear messages: {e}"),tone='danger'), ephemeral=True
             )
             return
 
         await interaction.followup.send(
-            embed=success_embed(f"Cleared {len(deleted)} messages."),
+            view=card_from_embed(success_embed(f"Cleared {len(deleted)} messages."),tone='success'),
             ephemeral=True,
         )
         await log_action(
@@ -626,7 +627,7 @@ class Moderation(commands.Cog):
         """Unban a user by ID (banned users aren't in the member list)."""
         if not user_id.isdigit():
             await interaction.response.send_message(
-                embed=error_embed("That doesn't look like a user ID."), ephemeral=True
+                view=card_from_embed(error_embed("That doesn't look like a user ID."),tone='danger'), ephemeral=True
             )
             return
 
@@ -635,12 +636,12 @@ class Moderation(commands.Cog):
             user = await self.bot.fetch_user(int(user_id))
         except discord.NotFound:
             await interaction.followup.send(
-                embed=error_embed("No Discord user with that ID exists."), ephemeral=True
+                view=card_from_embed(error_embed("No Discord user with that ID exists."),tone='danger'), ephemeral=True
             )
             return
         except discord.HTTPException:
             await interaction.followup.send(
-                embed=error_embed("Couldn't look up that user."), ephemeral=True
+                view=card_from_embed(error_embed("Couldn't look up that user."),tone='danger'), ephemeral=True
             )
             return
 
@@ -648,12 +649,12 @@ class Moderation(commands.Cog):
             await interaction.guild.unban(user, reason=f"Unban by {interaction.user}: {reason}")
         except discord.NotFound:
             await interaction.followup.send(
-                embed=error_embed(f"{user.mention} is not banned."), ephemeral=True
+                view=card_from_embed(error_embed(f"{user.mention} is not banned."),tone='danger'), ephemeral=True
             )
             return
         except discord.Forbidden:
             await interaction.followup.send(
-                embed=error_embed("I lack **Ban Members** permission."), ephemeral=True
+                view=card_from_embed(error_embed("I lack **Ban Members** permission."),tone='danger'), ephemeral=True
             )
             return
 
@@ -663,7 +664,7 @@ class Moderation(commands.Cog):
             pass  # DMs disabled — not an error
 
         await interaction.followup.send(
-            embed=success_embed(f"Unbanned {user.mention} (`{user.id}`)."), ephemeral=True
+            view=card_from_embed(success_embed(f"Unbanned {user.mention} (`{user.id}`)."),tone='success'), ephemeral=True
         )
         await log_action(self.bot, interaction.guild, "Unban", interaction.user, user, reason=reason)
 
@@ -681,12 +682,12 @@ class Moderation(commands.Cog):
         """Apply Discord's native timeout (communication disabled)."""
         if user.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
             await interaction.response.send_message(
-                embed=error_embed("You cannot moderate this user."), ephemeral=True
+                view=card_from_embed(error_embed("You cannot moderate this user."),tone='danger'), ephemeral=True
             )
             return
         if user.id == self.bot.user.id:
             await interaction.response.send_message(
-                embed=error_embed("I cannot timeout myself."), ephemeral=True
+                view=card_from_embed(error_embed("I cannot timeout myself."),tone='danger'), ephemeral=True
             )
             return
 
@@ -694,13 +695,13 @@ class Moderation(commands.Cog):
             await user.timeout(timedelta(minutes=minutes), reason=f"By {interaction.user}: {reason}")
         except discord.Forbidden:
             await interaction.response.send_message(
-                embed=error_embed("I lack **Moderate Members** permission (or their role is above mine)."),
+                view=card_from_embed(error_embed("I lack **Moderate Members** permission (or their role is above mine)."),tone='danger'),
                 ephemeral=True,
             )
             return
 
         await interaction.response.send_message(
-            embed=success_embed(f"Timed out {user.mention} for **{minutes}m**."), ephemeral=True
+            view=card_from_embed(success_embed(f"Timed out {user.mention} for **{minutes}m**."),tone='success'), ephemeral=True
         )
         await log_action(self.bot, interaction.guild, "Timeout", interaction.user, user, reason=reason, duration=f"{minutes}m")
 
@@ -717,7 +718,7 @@ class Moderation(commands.Cog):
         """Remove Discord's native timeout."""
         if user.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
             await interaction.response.send_message(
-                embed=error_embed("You cannot moderate this user."), ephemeral=True
+                view=card_from_embed(error_embed("You cannot moderate this user."),tone='danger'), ephemeral=True
             )
             return
 
@@ -725,13 +726,13 @@ class Moderation(commands.Cog):
             await user.timeout(None, reason=f"Timeout removed by {interaction.user}: {reason}")
         except discord.Forbidden:
             await interaction.response.send_message(
-                embed=error_embed("I lack **Moderate Members** permission (or their role is above mine)."),
+                view=card_from_embed(error_embed("I lack **Moderate Members** permission (or their role is above mine)."),tone='danger'),
                 ephemeral=True,
             )
             return
 
         await interaction.response.send_message(
-            embed=success_embed(f"Removed {user.mention}'s timeout."), ephemeral=True
+            view=card_from_embed(success_embed(f"Removed {user.mention}'s timeout."),tone='success'), ephemeral=True
         )
         await log_action(self.bot, interaction.guild, "Untimeout", interaction.user, user, reason=reason)
 

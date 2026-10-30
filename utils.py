@@ -57,8 +57,12 @@ def base_embed(
 
 
 def success_embed(text: str) -> discord.Embed:
-    return base_embed(description=f"\u2705 {text}")
+    embed=base_embed(title="✅ Action Completed",description=text.removeprefix("✅ "))
+    embed.colour=0x2ECC71
+    return embed
 
 
 def error_embed(text: str) -> discord.Embed:
-    return base_embed(description=f"\u274c {text}")
+    embed=base_embed(title="❌ Unable to Complete",description=text.removeprefix("❌ "))
+    embed.colour=0xED4245
+    return embed

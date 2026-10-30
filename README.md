@@ -48,3 +48,8 @@ Approved partnership ads are plain Discord messages, with the agreed ping first 
 - Accepted staff: grant Moderator 1563853559970136219 before confirming acceptance.
 - On join: Member 1563853559944974375.
 Thread membership reconciles on reconnect and role changes. Applicants/openers retain access to their own threads. Discord Administrator and Manage Threads permissions can independently bypass private-thread visibility; bot review actions still check the configured hierarchy. Native permission defaults do not hide moderation commands; the bot enforces thresholds at execution.
+
+## Response card styling
+Application DMs, questions, completion links, decisions, proof instructions, review cards, transcript downloads, and most moderation/information responses use native Components V2 containers with bold headings, status colours, dividers and contextual footnotes. Ticket panels, partnership ad text, tag selection, brief acknowledgements and dense history tables remain compact. Transcripts extract TextDisplay content from cards. Default mentions are suppressed; intentional applicant and partnership pings opt in explicitly.
+All ticket threads remain under the existing Tickets parent. Discord staff-add system notices are retained, as requested, rather than weakening staff-app/report visibility.
+Run python tests/card_style_test.py for layout and transcript coverage.

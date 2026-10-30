@@ -11,6 +11,7 @@ from config import DATA_DIR
 from access import ticket_staff, ACCEPTED_STAFF_ROLE
 from database import get_db, get_setting, set_setting
 from utils import base_embed
+from ui_cards import RichCard, card_from_embed, component_text, message_image
 
 DESTINATION = 1563853562176344166
 PARTNER_CHANNEL = 1563853561727811622
@@ -82,7 +83,7 @@ def staff_application_embeds(user_id, username, answers):
         for offset in range(0,len(text),1000):
             name=(f'{number}. {question}' if offset==0 else f'{number}. Answer continued')[:256]
             chunk=text[offset:offset+1000]
-            if len(embed)+len(name)+len(chunk)>5500 or len(embed.fields)>=25:
+            if len(embed)+len(name)+len(chunk)>3000 or len(embed.fields)>=20:
                 embeds.append(embed)
                 embed=base_embed(title='Staff Application | Answers continued')
             embed.add_field(name=name,value=chunk,inline=False)
@@ -94,6 +95,15 @@ def application_decision_embed(action,reason):
     title={'accept':'Application Accepted','deny':'Application Denied','hold':'Application On Hold'}[action]
     word={'accept':'accepted','deny':'denied','hold':'placed on hold'}[action]
     return base_embed(title=title,description=f'Your application for **Staff** has been **{word}**.\n\n**Reason:** {reason}')
+
+
+def application_decision_card(action,reason):
+    title={'accept':'✅ Application Accepted','deny':'❌ Application Denied','hold':'⏸️ Application On Hold'}[action]
+    word={'accept':'accepted','deny':'denied','hold':'placed on hold'}[action]
+    return RichCard(title,f'Your application for **Staff** has been **{word}**.',
+        sections=[('📋 Reason',reason)],
+        footer='You can contact the AU Schools staff team if you need clarification.',
+        tone={'accept':'success','deny':'danger','hold':'warning'}[action])
 
 
 async def schema():
@@ -248,7 +258,7 @@ class TagView(discord.ui.View):
                 return await interaction.followup.send('Ask staff to configure our advertisement with /ad set.', ephemeral=True)
             ours, theirs = ping_rule(rec['member_count'])
             prompt = base_embed(title='📸 Step 3/3 — Proof Screenshot', description='Send the ad below in your server with **' + (theirs or 'no ping') + '**, then upload a **screenshot as proof** here.')
-            await interaction.channel.send(embed=prompt, allowed_mentions=NO_MENTIONS)
+            await interaction.channel.send(view=RichCard("📸 Proof Screenshot",prompt.description,footer="Upload a screenshot image here when the advertisement has been posted.",tone="info"),allowed_mentions=NO_MENTIONS)
             await interaction.channel.send(clean_ad(ad)[:1800] + ('\n'+theirs if theirs else ''), allowed_mentions=NO_MENTIONS)
             await update(interaction.channel.id, stage='proof', rule_ours=ours, rule_theirs=theirs)
             disabled = TagView(json.loads(rec['tags']))
@@ -288,7 +298,7 @@ class DenyModal(discord.ui.Modal, title='Deny Partnership'):
             if rec['stage'] != 'review':
                 return await interaction.followup.send('This partnership is not awaiting review.', ephemeral=True)
             await update(interaction.channel.id, reviewer_id=str(interaction.user.id))
-            await interaction.channel.send(embed=base_embed(title='Partnership Denied', description=f"**Reviewed by:** {interaction.user.mention}\n**Reason:** {self.reason.value}"), allowed_mentions=NO_MENTIONS)
+            await interaction.channel.send(view=RichCard('❌ Partnership Denied','Your partnership request with **AU Schools** was reviewed and denied.',sections=[('📋 Reason',self.reason.value)],footer='You can contact our partnership staff if you need clarification.',tone='danger'),allowed_mentions=NO_MENTIONS)
             await self.cog.close_thread(interaction.channel,interaction.user,'Partnership denied: '+self.reason.value,status='denied')
             await interaction.followup.send('Partnership denied and ticket deleted.',ephemeral=True)
 
@@ -358,10 +368,10 @@ class StaffDecisionModal(discord.ui.Modal,title='Staff Application Review'):
                 except discord.HTTPException:
                     return await interaction.followup.send('I could not grant the staff role. Check Manage Roles and my role position, then retry Accept.',ephemeral=True)
             word={'accept':'accepted','deny':'denied','hold':'placed on hold'}[self.action]
-            await interaction.channel.send(embed=base_embed(title='Staff Application '+word.title(),description=f"**Applicant:** <@{rec['opener_id']}>\n**Reviewed by:** {interaction.user.mention}\n**Reason:** {self.reason.value}"),allowed_mentions=NO_MENTIONS)
+            await interaction.channel.send(view=RichCard(('✅ ' if self.action=='accept' else '❌ ' if self.action=='deny' else '⏸️ ')+'Staff Application '+word.title(),f"**Applicant:** <@{rec['opener_id']}>\n**Reviewed by:** {interaction.user.mention}",sections=[('📋 Reason',self.reason.value)],tone={'accept':'success','deny':'danger','hold':'warning'}[self.action]),allowed_mentions=NO_MENTIONS)
             try:
                 applicant=self.cog.bot.get_user(int(rec['opener_id'])) or await self.cog.bot.fetch_user(int(rec['opener_id']))
-                await applicant.send(embed=application_decision_embed(self.action,self.reason.value))
+                await applicant.send(view=application_decision_card(self.action,self.reason.value))
             except discord.HTTPException:
                 pass
             if self.action=='hold':
@@ -533,24 +543,22 @@ class ThreadTickets(commands.Cog):
             parent=await self.parent_channel(interaction.guild)
             try:
                 dm=await interaction.user.create_dm()
-                await dm.send(embed=base_embed(title='AU Schools | Staff Application',description='Answer the following six questions here. Type **cancel** to stop. You have **5 minutes per question**. Your completed answers will be submitted to a private review thread.'))
+                await dm.send(view=RichCard('📋 Staff Application','Apply to join the **AU Schools** staff team.',sections=[('✍️ How to apply','Answer the next **six questions** in this DM. Please answer honestly and include relevant experience.')],footer='Type cancel to stop • 5 minutes per question',tone='info'))
             except discord.HTTPException:
                 return await interaction.followup.send('Enable DMs from this server, then select Staff Apply again.',ephemeral=True)
             await interaction.followup.send('Check your DMs to complete your staff application.',ephemeral=True)
             questions=[line.split(') ',1)[1] for line in STAFF_QUESTIONS.splitlines()]
             answers=[]
             for i,question in enumerate(questions,1):
-                question_embed=base_embed(title=f'Q{i}/{len(questions)}',description=question)
-                question_embed.set_footer(text="Type 'cancel' to abort. 5 min timeout per question.")
-                await dm.send(embed=question_embed)
+                await dm.send(view=RichCard(f'📋 Question {i}/{len(questions)}',question,footer="Reply below • Type cancel to stop • 5 minutes per question",tone='info'))
                 def check(message):
                     return message.author.id==interaction.user.id and message.channel.id==dm.id
                 try:
                     response=await self.bot.wait_for('message',check=check,timeout=300)
                 except TimeoutError:
-                    return await dm.send('Your application timed out. Start again from Staff Apply when ready.')
+                    return await dm.send(view=RichCard('⏳ Application Timed Out','No answer was received within five minutes.',sections=[('↩️ Start again','Select **Staff Apply** in the ticket panel when you are ready.')],footer='Nothing was submitted.',tone='warning'))
                 if response.content.strip().casefold()=='cancel':
-                    return await dm.send('Application cancelled. Nothing was submitted.')
+                    return await dm.send(view=RichCard('Application Cancelled','Your staff application has been cancelled.',footer='Nothing was submitted. You can start again from the ticket panel.',tone='warning'))
                 answer=response.content.strip()
                 if response.attachments:
                     answer+='\n'+'\n'.join(a.url for a in response.attachments)
@@ -568,8 +576,7 @@ class ThreadTickets(commands.Cog):
             embeds=staff_application_embeds(interaction.user.id,interaction.user.name,answers)
             for index,embed in enumerate(embeds):
                 review=await thread.send(
-                    f'{interaction.user.mention} **staff app submitted.**' if index==0 else None,
-                    embed=embed,view=StaffApplicationView() if index==len(embeds)-1 else None,
+                    view=card_from_embed(embed,controls=StaffApplicationView() if index==len(embeds)-1 else None,tone='info'),
                     allowed_mentions=discord.AllowedMentions(everyone=False,roles=False,users=[interaction.user]),
                 )
             db=await get_db()
@@ -579,7 +586,7 @@ class ThreadTickets(commands.Cog):
             finally:
                 await db.close()
             try:
-                await dm.send(f'✅ Staff app submitted\n\nView your application thread: <#{thread.id}>')
+                await dm.send(view=RichCard('✅ Staff Application Submitted','Your application has been received by the **AU Schools** staff team.',sections=[('📨 Your Application Thread',f'<#{thread.id}>')],footer='Select the thread above to view your application and follow its review.',tone='success'))
             except discord.HTTPException:
                 pass
         except (discord.HTTPException,OSError) as error:
@@ -597,7 +604,7 @@ class ThreadTickets(commands.Cog):
                     pass
             print(f'Staff application submission failed for {interaction.user.id}: {error}')
             try:
-                await interaction.user.send('Your staff application could not be submitted. Please contact staff or try again.')
+                await interaction.user.send(view=RichCard('❌ Application Not Submitted','Your application could not be delivered to the review team.',sections=[('↩️ Next step','Please contact staff or try again from the ticket panel.')],tone='danger'))
             except discord.HTTPException:
                 pass
         finally:
@@ -689,7 +696,7 @@ class ThreadTickets(commands.Cog):
                     return await message.channel.send('Use an invite to a different Minecraft server with a visible member count.')
                 if invite.approximate_member_count < 30:
                     await message.channel.send(
-                        f"{message.author.mention} your server has too few members to partner. You need at least **30 members**. This ticket will be deleted in **10 seconds**.",
+                        view=RichCard('❌ Partnership Denied',f"{message.author.mention}, your partnership request could not be accepted.",sections=[('📋 Reason','Your server has too few members. You need at least **30 members** to partner.')],footer='This ticket will be deleted in 10 seconds.',tone='danger'),
                         allowed_mentions=discord.AllowedMentions(everyone=False,roles=False,users=[message.author]),
                     )
                     await update(message.channel.id, stage='rejecting', delete_after=time.time()+10)
@@ -717,8 +724,9 @@ class ThreadTickets(commands.Cog):
                 embed.set_image(url='attachment://partnership-proof.png')
                 if rec['server_icon']:
                     embed.set_thumbnail(url=rec['server_icon'])
-                review = await message.channel.send(f"🔍 **Staff Review — {message.author.mention}'s Application**", embed=embed, file=proof, view=ReviewView(), allowed_mentions=NO_MENTIONS)
-                proof_url = review.embeds[0].image.url if review.embeds and review.embeds[0].image else image.url
+                embed.description=f"**Applicant:** {message.author.mention}"
+                review = await message.channel.send(view=card_from_embed(embed,controls=ReviewView(),tone='info'),file=proof,allowed_mentions=NO_MENTIONS)
+                proof_url = message_image(review) or image.url
                 await update(message.channel.id, stage='review', review_message_id=str(review.id), proof_url=proof_url)
                 await message.channel.edit(name=(message.channel.name+' | 🔍 Under review')[:100])
 
@@ -731,8 +739,8 @@ class ThreadTickets(commands.Cog):
             rec = await record(interaction.channel.id)
             if rec['stage']=='proof' and not rec['review_message_id']:
                 message=interaction.message
-                if message.author.id==self.bot.user.id and message.embeds and message.embeds[0].title=='🔍 Partnership Application — Staff Review' and message.embeds[0].image:
-                    await update(interaction.channel.id,stage='review',review_message_id=str(message.id),proof_url=message.embeds[0].image.url)
+                if message.author.id==self.bot.user.id and message_image(message) and (any(e.title=='🔍 Partnership Application — Staff Review' for e in message.embeds) or 'Partnership Application — Staff Review' in component_text(message.components)):
+                    await update(interaction.channel.id,stage='review',review_message_id=str(message.id),proof_url=message_image(message))
                     rec=await record(interaction.channel.id)
             if rec['stage'] not in ('review', 'publishing', 'published'):
                 detail='This partnership has already been handled.' if rec['closed_at'] else 'This partnership is not ready for review yet. Complete the advertisement, tags and screenshot steps first.'
@@ -787,7 +795,7 @@ class ThreadTickets(commands.Cog):
                     if published is None:
                         published=discord.Object(id=int(sent_ids[-1]))
                 await update(interaction.channel.id, stage='published', publication_id=str(published.id))
-            await interaction.followup.send('Partnership accepted and published. Closing this ticket.', ephemeral=True)
+            await interaction.followup.send(view=RichCard('✅ Partnership Accepted','The partnership advertisement has been published successfully.',footer='The transcript will be saved and this ticket will close.',tone='success'),ephemeral=True)
             await self.close_thread(interaction.channel, interaction.user, 'Partnership approved and published', status='approved')
 
     async def close_thread(self, thread, user, reason, status='closed'):
@@ -796,7 +804,7 @@ class ThreadTickets(commands.Cog):
             return
         if rec['stage'] in ('publishing','published') and status!='approved':
             raise RuntimeError('Finish the partnership approval before closing this ticket.')
-        await thread.send(embed=base_embed(title='Ticket Closed', description=f'**Closed by:** {user.mention}\n**Reason:** {reason}'), allowed_mentions=NO_MENTIONS)
+        await thread.send(view=RichCard('🔒 Ticket Closed',f'Your ticket has been closed by {user.mention}.',sections=[('📋 Reason',reason)],footer='A transcript is saved before the ticket is deleted.',tone='brand'),allowed_mentions=NO_MENTIONS)
         from cogs.tickets import generate_transcript
         transcript = await generate_transcript(thread)
         directory = Path(DATA_DIR)/'transcripts'
@@ -858,7 +866,8 @@ class ThreadTickets(commands.Cog):
             return await interaction.response.send_message('You cannot export this ticket.',ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         from cogs.tickets import generate_transcript
-        await interaction.followup.send(file=await generate_transcript(interaction.channel),ephemeral=True)
+        transcript=await generate_transcript(interaction.channel)
+        await interaction.followup.send(view=RichCard('📄 Ticket Transcript','Your conversation record is ready to download.',sections=[('🔒 Keep it private','This transcript can contain personal details. Share it only with people you trust.')],filename=transcript.filename,footer='AU Schools • Ticket records',tone='info'),file=transcript,ephemeral=True)
 
     group = app_commands.Group(name='partnership', description='Partnership configuration and review settings', default_permissions=discord.Permissions(manage_guild=True), guild_only=True)
 

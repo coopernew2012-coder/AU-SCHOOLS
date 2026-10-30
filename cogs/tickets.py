@@ -11,6 +11,7 @@ Everything staff-facing is editable per guild (settings, edited via
 """
 import asyncio
 from pathlib import Path
+from ui_cards import RichCard, component_text
 import io
 import json
 import time
@@ -141,7 +142,7 @@ async def generate_transcript(channel) -> discord.File:
     for m in messages:
         ts = m.created_at.strftime("%d/%m/%Y, %H:%M:%S")
         author = _escape_html(m.author)
-        content = _escape_html(m.content or "").replace("\n", "<br>")
+        content = _escape_html((m.content or "") + ("\n\n"+component_text(getattr(m,"components",[])) if getattr(m,"components",[]) else "")).replace("\n", "<br>")
         embeds_html = ""
         for e in m.embeds:
             title = f'<div class="embed-title">{_escape_html(e.title)}</div>' if e.title else ""
@@ -850,11 +851,7 @@ class TicketSystem(commands.Cog):
             try:
                 creator = await self.bot.fetch_user(int(creator_id))
                 await creator.send(
-                    content=(
-                        "📄 Your ticket has been closed.\n\n"
-                        "Thank you for contacting the staff team.\n\n"
-                        "A transcript of your ticket has been attached for your records."
-                    ),
+                    view=RichCard('📄 Ticket Transcript','Your ticket has been closed. A copy of the conversation is ready for your records.',sections=[('🔒 Private record','Keep this transcript safe and only share it with authorised staff.')],filename=attachment.filename,tone='info'),
                     file=discord.File(io.BytesIO(attachment.fp.getvalue()), filename=attachment.filename),
                 )
                 dm_ok = True

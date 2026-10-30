@@ -6,6 +6,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 os.environ['DATA_DIR']=tempfile.mkdtemp(prefix='au-dm-tests-')
 import discord
 from database import init_db,get_db
+from ui_cards import component_text
 from cogs.thread_tickets import ThreadTickets,StaffApplicationView,StaffDecisionModal,schema,record,update,staff_application_embeds,application_decision_embed,STAFF_QUESTIONS
 import cogs.tickets as legacy
 async def run():
@@ -32,13 +33,15 @@ async def run():
  assert bot.wait_for.await_count==6;parent.create_thread.assert_awaited_once()
  rec=await record(55);assert rec['stage']=='app_review' and len(json.loads(rec['answers_json']))==6
  args=child.send.call_args.kwargs
- assert [x.label for x in args['view'].children]==['Deny','Accept','Hold']
+ assert all(label in str(args['view'].to_components()) for label in ['Deny','Accept','Hold'])
  assert user in args['allowed_mentions'].users
  assert 'file' not in args and 'files' not in args
- assert 'test.applicant' in args['embed'].description and '`10`' in args['embed'].description
+ review_text=component_text(args['view'].to_components())
+ assert 'test.applicant' in review_text and '`10`' in review_text
  assert not cog._staff_interviews
- assert dm.send.call_args.args[0].count('<#55>')==1
- assert 'https://discord.com/channels/' not in dm.send.call_args.args[0]
+ completion=component_text(dm.send.call_args.kwargs['view'].to_components())
+ assert completion.count('<#55>')==1
+ assert 'https://discord.com/channels/' not in completion
  # Manual close saves a transcript and deletes, rather than archiving.
  child.guild=NS(id=1);child.name='staffapply-1'
  original=legacy.generate_transcript;legacy.generate_transcript=AsyncMock(return_value=discord.File(io.BytesIO(b'test transcript'),filename='test.html'))

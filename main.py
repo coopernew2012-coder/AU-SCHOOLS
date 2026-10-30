@@ -1,3 +1,4 @@
+from ui_cards import card_from_embed
 import asyncio
 import hashlib
 from pathlib import Path
@@ -41,6 +42,7 @@ class AUSchoolsBot(commands.Bot):
             command_prefix="!",
             intents=intents,
             help_command=None,
+            allowed_mentions=discord.AllowedMentions.none(),
         )
         self._log_cache: dict[int, str | None] = {}
         self._last_presence = 0.0
@@ -128,12 +130,12 @@ class AUSchoolsBot(commands.Bot):
             threshold=TICKET_STAFF_ROLE if root in ticket_ops else MODERATION_ROLE
             member=interaction.user if isinstance(interaction.user,discord.Member) else None
             if not at_or_above(member,threshold):
-                await interaction.response.send_message(embed=error_embed(f'You need <@&{threshold}> or a higher role to use this command.'),ephemeral=True)
+                await interaction.response.send_message(view=card_from_embed(error_embed(f'You need <@&{threshold}> or a higher role to use this command.'),tone='danger'),ephemeral=True)
                 raise AccessDenied('Role threshold not met')
             target=getattr(interaction.namespace,'member',None) or getattr(interaction.namespace,'user',None)
             if root not in ticket_ops and isinstance(target,discord.Member) and member.id!=interaction.guild.owner_id:
                 if target.id in (member.id,interaction.guild.owner_id,self.user.id) or target.top_role>=member.top_role:
-                    await interaction.response.send_message(embed=error_embed('You cannot moderate yourself, the server owner, the bot, or a member with an equal or higher role.'),ephemeral=True)
+                    await interaction.response.send_message(view=card_from_embed(error_embed('You cannot moderate yourself, the server owner, the bot, or a member with an equal or higher role.'),tone='danger'),ephemeral=True)
                     raise AccessDenied('Target role hierarchy')
             return True
 
@@ -151,9 +153,9 @@ class AUSchoolsBot(commands.Bot):
         )
         try:
             if interaction.response.is_done():
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                await interaction.followup.send(view=card_from_embed(embed,tone='info'), ephemeral=True)
             else:
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                await interaction.response.send_message(view=card_from_embed(embed,tone='info'), ephemeral=True)
         except Exception:
             pass
         raise AccessDenied(
@@ -172,9 +174,9 @@ class AUSchoolsBot(commands.Bot):
         try:
             embed = error_embed("Something went wrong running that command. The error has been logged.")
             if interaction.response.is_done():
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                await interaction.followup.send(view=card_from_embed(embed,tone='info'), ephemeral=True)
             else:
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                await interaction.response.send_message(view=card_from_embed(embed,tone='info'), ephemeral=True)
         except Exception:
             pass
 
@@ -291,7 +293,7 @@ class AUSchoolsBot(commands.Bot):
         embed.set_footer(text=f"User ID: {interaction.user.id}")
 
         try:
-            await channel.send(embed=embed)
+            await channel.send(view=card_from_embed(embed,tone='info'))
         except discord.Forbidden:
             pass
 

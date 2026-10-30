@@ -64,7 +64,8 @@ async def run():
  await update(1001,stage='proof',review_message_id=None)
  approval=interaction(cog,thread,uid=22)
  approval.message.id=2002;approval.message.author=NS(id=900)
- approval.message.embeds=[discord.Embed(title='🔍 Partnership Application — Staff Review').set_image(url='https://cdn.example/proof.png')]
+ approval.message.embeds=[]
+ approval.message.components=RichCard('🔍 Partnership Application — Staff Review',image='https://cdn.example/proof.png').to_components()
  await cog.accept(approval);await cog.accept(interaction(cog,thread,uid=22))
  dest.send.assert_awaited_once();cog.close_thread.assert_awaited_once();assert (await record(1001))['stage']=='approved'
  assert dest.send.call_args.kwargs['content'].startswith('@everyone\n\n')

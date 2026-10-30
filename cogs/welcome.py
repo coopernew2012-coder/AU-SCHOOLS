@@ -1,3 +1,4 @@
+from ui_cards import card_from_embed
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -37,21 +38,21 @@ class Welcome(commands.Cog):
     async def toggle_welcome(self, interaction: discord.Interaction, state: str):
         enabled = 1 if state == "on" else 0
         await _upsert(interaction.guild.id, enabled=enabled)
-        await interaction.response.send_message(embed=success_embed(f"Welcome messages: **{state.upper()}**"), ephemeral=True)
+        await interaction.response.send_message(view=card_from_embed(success_embed(f"Welcome messages: **{state.upper()}**"),tone='success'), ephemeral=True)
 
     @welcome_group.command(name="channel", description="Set the channel for welcome messages.")
     @app_commands.describe(channel="Channel for welcome messages.")
     @app_commands.default_permissions(administrator=True)
     async def set_welcome_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await _upsert(interaction.guild.id, channel_id=str(channel.id))
-        await interaction.response.send_message(embed=success_embed(f"Welcome channel set to {channel.mention}."), ephemeral=True)
+        await interaction.response.send_message(view=card_from_embed(success_embed(f"Welcome channel set to {channel.mention}."),tone='success'), ephemeral=True)
 
     @welcome_group.command(name="message", description="Set the welcome message text. Use {user}, {user_mention}, {server_name}, {member_count}.")
     @app_commands.describe(text="Use {user}, {user_mention}, {server_name}, {member_count}.")
     @app_commands.default_permissions(administrator=True)
     async def set_welcome_message(self, interaction: discord.Interaction, text: str):
         await _upsert(interaction.guild.id, message=text)
-        await interaction.response.send_message(embed=success_embed("Welcome message updated."), ephemeral=True)
+        await interaction.response.send_message(view=card_from_embed(success_embed("Welcome message updated."),tone='success'), ephemeral=True)
 
     @welcome_group.command(name="goodbye-toggle", description="Enable or disable goodbye messages.")
     @app_commands.describe(state="Enable or disable goodbye messages.")
@@ -60,21 +61,21 @@ class Welcome(commands.Cog):
     async def goodbye_toggle(self, interaction: discord.Interaction, state: str):
         enabled = 1 if state == "on" else 0
         await _upsert(interaction.guild.id, goodbye_enabled=enabled)
-        await interaction.response.send_message(embed=success_embed(f"Goodbye messages: **{state.upper()}**"), ephemeral=True)
+        await interaction.response.send_message(view=card_from_embed(success_embed(f"Goodbye messages: **{state.upper()}**"),tone='success'), ephemeral=True)
 
     @welcome_group.command(name="goodbye-channel", description="Set the channel for goodbye messages.")
     @app_commands.describe(channel="Channel for goodbye messages.")
     @app_commands.default_permissions(administrator=True)
     async def set_goodbye_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await _upsert(interaction.guild.id, goodbye_channel_id=str(channel.id))
-        await interaction.response.send_message(embed=success_embed(f"Goodbye channel set to {channel.mention}."), ephemeral=True)
+        await interaction.response.send_message(view=card_from_embed(success_embed(f"Goodbye channel set to {channel.mention}."),tone='success'), ephemeral=True)
 
     @welcome_group.command(name="goodbye-message", description="Set the goodbye message text. Use {user}, {user_mention}, {server_name}.")
     @app_commands.describe(text="Use {user}, {user_mention}, {server_name}.")
     @app_commands.default_permissions(administrator=True)
     async def set_goodbye_message(self, interaction: discord.Interaction, text: str):
         await _upsert(interaction.guild.id, goodbye_message=text)
-        await interaction.response.send_message(embed=success_embed("Goodbye message updated."), ephemeral=True)
+        await interaction.response.send_message(view=card_from_embed(success_embed("Goodbye message updated."),tone='success'), ephemeral=True)
 
     @welcome_group.command(name="status", description="Show the full welcome/goodbye configuration at a glance.")
     @app_commands.default_permissions(administrator=True)
@@ -95,10 +96,10 @@ class Welcome(commands.Cog):
 
         if not row:
             await interaction.response.send_message(
-                embed=error_embed(
+                view=card_from_embed(error_embed(
                     "Nothing configured yet.\n"
                     "Setup: `/welcome channel` → `/welcome toggle on` → `/welcome message` (optional)"
-                ),
+                ),tone='danger'),
                 ephemeral=True,
             )
             return
@@ -123,7 +124,7 @@ class Welcome(commands.Cog):
             inline=False,
         )
         embed.set_footer(text="Settings are stored on the bot's disk — make sure DATA_DIR=/data is set on Railway with a Volume, or they reset on every deploy.")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(view=card_from_embed(embed,tone='info'), ephemeral=True)
 
     @welcome_group.command(name="test", description="Send a test welcome message using your info to verify the configuration.")
     @app_commands.default_permissions(administrator=True)
@@ -136,32 +137,32 @@ class Welcome(commands.Cog):
             await db.close()
         if not row or not row["enabled"]:
             await interaction.response.send_message(
-                embed=error_embed("Welcome messages are **OFF** — run `/welcome toggle on` first."), ephemeral=True
+                view=card_from_embed(error_embed("Welcome messages are **OFF** — run `/welcome toggle on` first."),tone='danger'), ephemeral=True
             )
             return
         if not row["channel_id"]:
             await interaction.response.send_message(
-                embed=error_embed(
+                view=card_from_embed(error_embed(
                     "The toggle is ON but no **channel** is set — run `/welcome channel #your-channel`.\n"
                     "(If you set one before, it was lost in a redeploy — see `/welcome status`.)"
-                ),
+                ),tone='danger'),
                 ephemeral=True,
             )
             return
         channel = interaction.guild.get_channel(int(row["channel_id"]))
         if not channel:
             await interaction.response.send_message(
-                embed=error_embed(
+                view=card_from_embed(error_embed(
                     "The saved welcome channel was **deleted** — run `/welcome channel` again to pick a new one."
-                ),
+                ),tone='danger'),
                 ephemeral=True,
             )
             return
         msg = fmt_msg(row["message"] or "Welcome {user_mention}!", interaction.user)
         embed = base_embed(title=f"Welcome to AU Schools!", description=msg)
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        await channel.send(embed=embed)
-        await interaction.response.send_message(embed=success_embed(f"Test welcome sent to {channel.mention}."), ephemeral=True)
+        await channel.send(view=card_from_embed(embed,tone='info'))
+        await interaction.response.send_message(view=card_from_embed(success_embed(f"Test welcome sent to {channel.mention}."),tone='success'), ephemeral=True)
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
@@ -180,7 +181,7 @@ class Welcome(commands.Cog):
         embed = base_embed(title=f"Welcome to AU Schools!", description=msg)
         embed.set_thumbnail(url=member.display_avatar.url)
         try:
-            await channel.send(embed=embed)
+            await channel.send(view=card_from_embed(embed,tone='info'))
         except discord.Forbidden:
             pass
 
@@ -201,7 +202,7 @@ class Welcome(commands.Cog):
         embed = base_embed(title="AU Schools | Goodbye!", description=msg)
         embed.set_thumbnail(url=member.display_avatar.url)
         try:
-            await channel.send(embed=embed)
+            await channel.send(view=card_from_embed(embed,tone='info'))
         except discord.Forbidden:
             pass
 
