@@ -1,5 +1,6 @@
 """Persistent private-thread tickets and reviewed partnership exchanges."""
 import asyncio
+import io
 import json
 import re
 import time
@@ -75,6 +76,10 @@ async def schema():
             columns = {row[1] for row in await cursor.fetchall()}
         if 'claimed_by' not in columns:
             await db.execute('ALTER TABLE au_thread_tickets ADD COLUMN claimed_by TEXT')
+        if 'delete_after' not in columns:
+            await db.execute('ALTER TABLE au_thread_tickets ADD COLUMN delete_after REAL')
+        if 'answers_json' not in columns:
+            await db.execute('ALTER TABLE au_thread_tickets ADD COLUMN answers_json TEXT')
         await db.commit()
     finally:
         await db.close()
@@ -91,7 +96,7 @@ async def record(thread_id):
 
 
 async def update(thread_id, **values):
-    allowed = {'stage', 'closed_at', 'ad', 'invite', 'server_id', 'server_name', 'server_icon', 'member_count', 'tags', 'proof_url', 'tag_message_id', 'review_message_id', 'publication_id', 'denials', 'reviewer_id', 'rule_ours', 'rule_theirs', 'claimed_by'}
+    allowed = {'stage', 'closed_at', 'ad', 'invite', 'server_id', 'server_name', 'server_icon', 'member_count', 'tags', 'proof_url', 'tag_message_id', 'review_message_id', 'publication_id', 'denials', 'reviewer_id', 'rule_ours', 'rule_theirs', 'claimed_by', 'delete_after', 'answers_json'}
     if not values or not values.keys() <= allowed:
         raise ValueError('Invalid ticket update')
     db = await get_db()
@@ -144,7 +149,7 @@ class CloseModal(discord.ui.Modal, title='Close Ticket'):
             if rec['stage'] in ('publishing', 'published'):
                 return await interaction.followup.send('Finish the partnership approval before closing this ticket.', ephemeral=True)
             await self.cog.close_thread(interaction.channel, interaction.user, self.reason.value)
-        await interaction.followup.send('Ticket closed and archived.', ephemeral=True)
+        await interaction.followup.send('Ticket closed and deleted.', ephemeral=True)
 
 
 def tag_text(selected):
@@ -264,10 +269,69 @@ class AdModal(discord.ui.Modal, title='AU Schools Advertisement'):
         await interaction.response.send_message('Advertisement saved.', ephemeral=True)
 
 
+class StaffApplicationView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def review(self, interaction, action):
+        cog = interaction.client.get_cog('ThreadTickets')
+        rec = await record(interaction.channel.id)
+        if not rec or rec['kind']!='Staff Apply' or not await cog.is_staff(interaction,rec):
+            return await interaction.response.send_message('Application managers only.',ephemeral=True)
+        await interaction.response.send_modal(StaffDecisionModal(cog,action))
+
+    @discord.ui.button(label='Deny',style=discord.ButtonStyle.danger,custom_id='au_staff_deny')
+    async def deny(self,interaction,button):
+        await self.review(interaction,'deny')
+
+    @discord.ui.button(label='Accept',style=discord.ButtonStyle.success,custom_id='au_staff_accept')
+    async def accept(self,interaction,button):
+        await self.review(interaction,'accept')
+
+    @discord.ui.button(label='Hold',style=discord.ButtonStyle.secondary,custom_id='au_staff_hold')
+    async def hold(self,interaction,button):
+        await self.review(interaction,'hold')
+
+
+class StaffDecisionModal(discord.ui.Modal,title='Staff Application Review'):
+    reason=discord.ui.TextInput(label='Reason',style=discord.TextStyle.paragraph,max_length=1000)
+    def __init__(self,cog,action):
+        super().__init__(timeout=300)
+        self.cog,self.action=cog,action
+
+    async def on_submit(self,interaction):
+        rec=await record(interaction.channel.id)
+        if not rec or not await self.cog.is_staff(interaction,rec):
+            return await interaction.response.send_message('Application managers only.',ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        async with self.cog.lock(interaction.channel.id):
+            rec=await record(interaction.channel.id)
+            if rec['stage'] not in ('app_review','app_hold'):
+                return await interaction.followup.send('This application has already been reviewed.',ephemeral=True)
+            word={'accept':'accepted','deny':'denied','hold':'placed on hold'}[self.action]
+            await interaction.channel.send(embed=base_embed(title='Staff Application '+word.title(),description=f"**Applicant:** <@{rec['opener_id']}>\n**Reviewed by:** {interaction.user.mention}\n**Reason:** {self.reason.value}"),allowed_mentions=NO_MENTIONS)
+            try:
+                applicant=self.cog.bot.get_user(int(rec['opener_id'])) or await self.cog.bot.fetch_user(int(rec['opener_id']))
+                await applicant.send(embed=base_embed(title='AU Schools | Staff Application',description=f'Your application has been **{word}**.\n\n**Reason:** {self.reason.value}'))
+            except discord.HTTPException:
+                pass
+            if self.action=='hold':
+                await update(interaction.channel.id,stage='app_hold',reviewer_id=str(interaction.user.id))
+                return await interaction.followup.send('Application placed on hold; the review thread remains open.',ephemeral=True)
+            await update(interaction.channel.id,stage='app_'+word,reviewer_id=str(interaction.user.id))
+            try:
+                await self.cog.close_thread(interaction.channel,interaction.user,'Staff application '+word+': '+self.reason.value,status='app_'+word)
+            except (discord.HTTPException,OSError):
+                return await interaction.followup.send('Decision saved, but the thread could not be deleted. Use /close to retry.',ephemeral=True)
+            await interaction.followup.send('Application '+word+'; review thread deleted.',ephemeral=True)
+
+
 class ThreadTickets(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._locks = {}
+        self._deletion_tasks = {}
+        self._staff_interviews = set()
 
     def lock(self, key):
         return self._locks.setdefault(key, asyncio.Lock())
@@ -279,8 +343,48 @@ class ThreadTickets(commands.Cog):
             from config import MAIN_GUILD_ID
             if MAIN_GUILD_ID and not await get_setting(MAIN_GUILD_ID,'partner_ad'):
                 await set_setting(MAIN_GUILD_ID,'partner_ad',bundled_ad.read_text(encoding='utf-8'))
-        for view in (TicketPanelView(), CloseThreadView(), TagView(), ReviewView()):
+        for view in (TicketPanelView(), CloseThreadView(), TagView(), ReviewView(), StaffApplicationView()):
             self.bot.add_view(view)
+
+    def schedule_low_member_deletion(self, thread_id):
+        task = self._deletion_tasks.get(thread_id)
+        if task and not task.done():
+            return
+        task = asyncio.create_task(self.delete_low_member_ticket(thread_id))
+        self._deletion_tasks[thread_id] = task
+        task.add_done_callback(lambda done: self._deletion_tasks.pop(thread_id, None))
+
+    async def delete_low_member_ticket(self, thread_id):
+        rec = await record(thread_id)
+        if not rec or rec['stage'] != 'rejecting':
+            return
+        await asyncio.sleep(max(0, (rec['delete_after'] or time.time())-time.time()))
+        async with self.lock(thread_id):
+            rec = await record(thread_id)
+            if not rec or rec['closed_at'] or rec['stage'] != 'rejecting':
+                return
+            try:
+                thread = self.bot.get_channel(thread_id) or await self.bot.fetch_channel(thread_id)
+                await self.close_thread(thread, self.bot.user, 'Partner server has fewer than 30 members', status='rejected')
+            except discord.NotFound:
+                await update(thread_id,stage='rejected',closed_at=time.time(),delete_after=None)
+            except (discord.HTTPException, OSError) as error:
+                print(f'Could not delete low-member partnership ticket {thread_id}: {error}')
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        db = await get_db()
+        try:
+            async with db.execute("SELECT thread_id FROM au_thread_tickets WHERE stage='rejecting' AND closed_at IS NULL") as cursor:
+                rows = await cursor.fetchall()
+        finally:
+            await db.close()
+        for row in rows:
+            self.schedule_low_member_deletion(int(row['thread_id']))
+
+    async def cog_unload(self):
+        for task in self._deletion_tasks.values():
+            task.cancel()
 
     async def is_staff(self, interaction, rec):
         if not rec or not isinstance(interaction.user, discord.Member):
@@ -290,6 +394,8 @@ class ThreadTickets(commands.Cog):
             return True
         key = 'ticket_admin_role' if rec['kind']=='Player/Staff Report' else 'partner_review_role' if rec['kind']=='Partnership' else 'ticket_staff_role'
         role_id = await get_setting(interaction.guild.id, key)
+        if rec['kind']=='Staff Apply':
+            role_id = await get_setting(interaction.guild.id,'apply_reviewer_role') or role_id
         return bool(role_id and str(role_id) in {str(r.id) for r in interaction.user.roles})
 
     async def parent_channel(self, guild):
@@ -314,14 +420,106 @@ class ThreadTickets(commands.Cog):
         await set_setting(guild.id, 'thread_ticket_parent', str(channel.id))
         return channel
 
+    async def start_staff_application(self, interaction):
+        key=(interaction.guild.id,interaction.user.id)
+        if key in self._staff_interviews:
+            return await interaction.followup.send('You already have a staff application in progress. Finish it or type cancel in DMs.',ephemeral=True)
+        self._staff_interviews.add(key)
+        number=None
+        thread=None
+        try:
+            db=await get_db()
+            try:
+                async with db.execute("SELECT thread_id FROM au_thread_tickets WHERE guild_id=? AND opener_id=? AND kind='Staff Apply' AND closed_at IS NULL AND stage!='failed'",tuple(map(str,key))) as cursor:
+                    existing=await cursor.fetchone()
+            finally:
+                await db.close()
+            if existing:
+                return await interaction.followup.send(f"Your staff application is already awaiting review: <#{existing['thread_id']}>",ephemeral=True)
+            parent=await self.parent_channel(interaction.guild)
+            try:
+                dm=await interaction.user.create_dm()
+                await dm.send(embed=base_embed(title='AU Schools | Staff Application',description='Answer the following six questions here. Type **cancel** to stop. You have **5 minutes per question**. Your completed answers will be submitted to a private review thread.'))
+            except discord.HTTPException:
+                return await interaction.followup.send('Enable DMs from this server, then select Staff Apply again.',ephemeral=True)
+            await interaction.followup.send('Check your DMs to complete your staff application.',ephemeral=True)
+            questions=[line.split(') ',1)[1] for line in STAFF_QUESTIONS.splitlines()]
+            answers=[]
+            for i,question in enumerate(questions,1):
+                await dm.send(embed=base_embed(title=f'Staff Application | {i}/{len(questions)}',description=question))
+                def check(message):
+                    return message.author.id==interaction.user.id and message.channel.id==dm.id
+                try:
+                    response=await self.bot.wait_for('message',check=check,timeout=300)
+                except TimeoutError:
+                    return await dm.send('Your application timed out. Start again from Staff Apply when ready.')
+                if response.content.strip().casefold()=='cancel':
+                    return await dm.send('Application cancelled. Nothing was submitted.')
+                answer=response.content.strip()
+                if response.attachments:
+                    answer+='\n'+'\n'.join(a.url for a in response.attachments)
+                answers.append((question,answer or 'No answer provided'))
+            db=await get_db()
+            try:
+                cursor=await db.execute("INSERT INTO au_thread_tickets(guild_id,opener_id,kind,stage,opened_at,answers_json) VALUES(?,?,'Staff Apply','creating',?,?)",(str(key[0]),str(key[1]),time.time(),json.dumps(answers)))
+                number=cursor.lastrowid
+                await db.commit()
+            finally:
+                await db.close()
+            thread=await parent.create_thread(name=f'🛡️ | staffapply-#{number}',type=discord.ChannelType.private_thread,invitable=False,auto_archive_duration=1440,reason=f'Completed staff application from {interaction.user}')
+            await thread.add_user(interaction.user)
+            role_id=await get_setting(interaction.guild.id,'apply_reviewer_role') or await get_setting(interaction.guild.id,'ticket_staff_role')
+            role=interaction.guild.get_role(int(role_id)) if role_id and role_id.isdigit() else None
+            if role:
+                for member in role.members:
+                    if not member.bot:
+                        await thread.add_user(member)
+            embed=base_embed(title='AU Schools | Staff Application',description=f'**Applicant:** {interaction.user.mention}\n**Status:** Awaiting review')
+            for question,answer in answers:
+                embed.add_field(name=question[:160],value=answer[:650],inline=False)
+            full='\n\n'.join(f'{i}. {q}\n{a}' for i,(q,a) in enumerate(answers,1))
+            review=await thread.send(f'{interaction.user.mention} **staff app submitted.**',embed=embed,file=discord.File(io.BytesIO(full.encode('utf-8')),filename='staff-application.txt'),view=StaffApplicationView(),allowed_mentions=discord.AllowedMentions(everyone=False,roles=False,users=[interaction.user]))
+            db=await get_db()
+            try:
+                await db.execute("UPDATE au_thread_tickets SET thread_id=?,stage='app_review',review_message_id=? WHERE number=?",(str(thread.id),str(review.id),number))
+                await db.commit()
+            finally:
+                await db.close()
+            try:
+                await dm.send('✅ Staff app submitted')
+            except discord.HTTPException:
+                pass
+        except (discord.HTTPException,OSError) as error:
+            if number is not None:
+                db=await get_db()
+                try:
+                    await db.execute("UPDATE au_thread_tickets SET stage='failed',closed_at=? WHERE number=?",(time.time(),number))
+                    await db.commit()
+                finally:
+                    await db.close()
+            if thread is not None:
+                try:
+                    await thread.delete(reason='Staff application submission failed')
+                except discord.HTTPException:
+                    pass
+            print(f'Staff application submission failed for {interaction.user.id}: {error}')
+            try:
+                await interaction.user.send('Your staff application could not be submitted. Please contact staff or try again.')
+            except discord.HTTPException:
+                pass
+        finally:
+            self._staff_interviews.discard(key)
+
     async def open_ticket(self, interaction, kind):
         await interaction.response.defer(ephemeral=True)
         aliases = {'General Support':'Support', 'Report a Member':'Player/Staff Report', 'Player Report':'Player/Staff Report', 'Staff Report':'Player/Staff Report', 'Application':'Staff Apply', 'Bug Report':'Support', 'Unban Appeal':'Support'}
         kind = aliases.get(kind, kind)
+        if kind == 'Staff Apply':
+            return await self.start_staff_application(interaction)
         if kind not in TYPES:
             return await interaction.followup.send('Use the new ticket panel to select a ticket type.', ephemeral=True)
         key = (interaction.guild.id, interaction.user.id)
-        async with self.lock(key):
+        async with self.lock((*key,kind)):
             db = await get_db()
             try:
                 async with db.execute("SELECT thread_id FROM au_thread_tickets WHERE guild_id=? AND opener_id=? AND kind=? AND closed_at IS NULL AND stage!='failed'", (*map(str,key),kind)) as cursor:
@@ -365,9 +563,9 @@ class ThreadTickets(commands.Cog):
                     'Player/Staff Report': f"👋 Welcome {interaction.user.mention}! Please state who you're reporting and describe the incident in detail.",
                     'Staff Apply': f'👋 Welcome {interaction.user.mention}! Please answer the following questions:\n\n'+STAFF_QUESTIONS,
                     'Other Inquiries': f'👋 Welcome {interaction.user.mention}! Please describe your inquiry and a staff member will assist you shortly.',
-                    'Partnership': '## 📋 Step 1/4 — Advertisement + Invite Link\nSend your full **advertisement text** and your **Discord invite link** in the same message.\n\n**Requirements**\n• Minecraft servers only.\n• At least 30 members.\n• No botted or fake members.\n\n**Partner Requirements — Our Server: 100 Members**\n30–49: We do not ping; you @everyone.\n50–99: We @here; you @everyone.\n100–149: Both @here.\n150–199: We @everyone; you @here.\n200+: We @everyone; you do not ping.',
+                    'Partnership': '## 📋 Step 1/4 — Advertisement + Invite Link\nSend your full **advertisement text** and your **Discord invite link** in the same message.',
                 }[kind]
-                await thread.send(welcome, view=CloseThreadView(), allowed_mentions=discord.AllowedMentions(everyone=False,roles=False,users=[interaction.user]))
+                await thread.send(welcome, allowed_mentions=discord.AllowedMentions(everyone=False,roles=False,users=[interaction.user]))
                 await interaction.followup.send(f'Ticket opened: {thread.mention}', ephemeral=True)
             except (discord.HTTPException, RuntimeError):
                 db = await get_db()
@@ -378,7 +576,7 @@ class ThreadTickets(commands.Cog):
                     await db.close()
                 if thread:
                     try:
-                        await thread.edit(archived=True, locked=True)
+                        await thread.delete(reason="Ticket creation failed")
                     except discord.HTTPException:
                         pass
                 await interaction.followup.send('The ticket could not be created. Check my Manage Threads, Create Private Threads and channel permissions.', ephemeral=True)
@@ -403,7 +601,13 @@ class ThreadTickets(commands.Cog):
                 if not invite.guild or invite.guild.id==message.guild.id or invite.approximate_member_count is None:
                     return await message.channel.send('Use an invite to a different Minecraft server with a visible member count.')
                 if invite.approximate_member_count < 30:
-                    return await message.channel.send('Your server needs at least **30 members** to partner. This invite does not meet the minimum.')
+                    await message.channel.send(
+                        f"{message.author.mention} your server has too few members to partner. You need at least **30 members**. This ticket will be deleted in **10 seconds**.",
+                        allowed_mentions=discord.AllowedMentions(everyone=False,roles=False,users=[message.author]),
+                    )
+                    await update(message.channel.id, stage='rejecting', delete_after=time.time()+10)
+                    self.schedule_low_member_deletion(message.channel.id)
+                    return
                 await update(message.channel.id, stage='tags', ad=message.content, invite='https://discord.gg/'+match.group(1), server_id=str(invite.guild.id), server_name=invite.guild.name, server_icon=str(invite.guild.icon.url) if invite.guild.icon else '', member_count=invite.approximate_member_count)
                 sent = await message.channel.send(tag_text([]), view=TagView(), allowed_mentions=NO_MENTIONS)
                 await update(message.channel.id, tag_message_id=str(sent.id))
@@ -491,8 +695,8 @@ class ThreadTickets(commands.Cog):
         directory = Path(DATA_DIR)/'transcripts'
         directory.mkdir(parents=True, exist_ok=True)
         (directory/f'thread-{thread.id}.html').write_bytes(transcript.fp.getvalue())
-        await thread.edit(archived=True, locked=True, reason=reason[:400])
-        await update(thread.id, stage=status, closed_at=time.time())
+        await thread.delete(reason=reason[:400])
+        await update(thread.id, stage=status, closed_at=time.time(), delete_after=None)
 
     async def close_command(self, interaction, partnership_only=False):
         rec = await record(interaction.channel.id)

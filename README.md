@@ -16,12 +16,12 @@ Install requirements.txt, configure the ignored .env with DISCORD_TOKEN, and run
 Normal moderation and information commands remain. Editing commands, `/welcome` tests/settings and role configuration menus are not exposed. Existing automatic welcome/autorole behaviour and saved roles are preserved.
 
 ## Private threads
-The panel offers Support, Partnership, Player/Staff Report, Staff Apply, and Other Inquiries. No paid advertisements. Threads are created in a text channel under category 1563853563468447867; `thread_ticket_parent` stores its channel ID. The opener is added automatically; the relevant saved staff/reviewer role members are added if configured. Users with Discord Manage Threads or Administrator can see private threads. Close archives and locks the thread and saves a local transcript (up to 1,000 messages). Ticket numbers and in-progress steps survive restarts. One open ticket per member; partnerships have a 12-hour cooldown.
+The panel offers Support, Partnership, Player/Staff Report, Staff Apply, and Other Inquiries. No paid advertisements. Threads are created in a text channel under category 1563853563468447867; `thread_ticket_parent` stores its channel ID. The opener is added automatically; the relevant saved staff/reviewer role members are added if configured. Users with Discord Manage Threads or Administrator can see private threads. Close saves a local transcript and deletes the thread (up to 1,000 messages). Ticket numbers and in-progress steps survive restarts. One open ticket per member per category; partnerships have a 12-hour cooldown.
 
-Staff Apply uses six questions directly in the ticket, matching the reference. Legacy DM application panels are no longer used.
+Staff Apply starts a six-question DM interview. On completion, it creates a private review thread, adds and pings the applicant, attaches all answers, and shows Deny, Accept and Hold buttons. Decisions require authorised staff and a reason. Hold keeps the thread open; final decisions notify the applicant and save a transcript before deleting the review thread. No application-editing commands are exposed.
 
 ## Partnerships
-Minecraft servers only, minimum 30 members, no fake or botted members. The bot checks invite validity and approximate member count; reviewers must verify Minecraft focus, genuine membership, and screenshot evidence. Flow: advertisement plus invite -> up to five selectable tags -> our advertisement/ping agreement -> uploaded screenshot -> staff review. Approved ads post to 1563853561727811622, then the ticket archives. Publication failures leave the ticket available for retry; duplicate approval clicks do not post twice. Accept approves; Deny requires three distinct reviewer votes, each with a reason. Proof is reuploaded to the review message.
+Minecraft servers only, minimum 30 members, no fake or botted members. The bot checks invite validity and approximate member count; reviewers must verify Minecraft focus, genuine membership, and screenshot evidence. Flow: advertisement plus invite -> up to five selectable tags -> our advertisement/ping agreement -> uploaded screenshot -> staff review. Approved ads post to 1563853561727811622, then the ticket is deleted. Publication failures leave the ticket available for retry; duplicate approval clicks do not post twice. Accept approves; Deny requires three distinct reviewer votes, each with a reason. Proof is reuploaded to the review message.
 
 Ping rules by partner size (ours / theirs):
 - 30–49: none / @everyone
@@ -36,3 +36,5 @@ Informational mentions in tickets are suppressed; only the agreed ping in the ap
 Run `python tests/smoke_test.py`. It uses a temporary database and mocked Discord interactions; it does not publish messages or log in.
 
 Removed commands: warnings (warn/warnings/clear-warnings), user-info, slowmode, role-info, rules, ping, massban and avatar. Historical database records are preserved.
+
+Opening messages have no Close Ticket button or partnership requirements block. Rules and tier checks still apply internally. A partner below 30 members is mentioned in a rejection message and the thread is deleted after a persisted 10-second deadline, which resumes after restarts. New threads open in channel 1563853562176344166. Run python tests/dm_flow_test.py to verify the DM application and deletion changes offline.
