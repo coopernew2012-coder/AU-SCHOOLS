@@ -34,6 +34,10 @@ async def run():
  assert len(TicketPanelView().choose.options)==5
  assert 'paid' not in panel_embed().description.lower()
  assert '@everyone' not in clean_ad('Ad @everyone @here')
+ long_rec={'rule_ours':'@everyone','ad':'x'*3500,'tags':'["Java","SMP"]'}
+ chunks=partnership_messages(long_rec)
+ assert all(len(part)<=1900 for part in chunks)
+ assert ''.join(chunks)=='@everyone\n\n'+'x'*3500+'\n\n#java\n#smp'
  dest=MagicMock(spec=discord.TextChannel);dest.id=500;dest.history=history;dest.send=AsyncMock(return_value=NS(id=777))
  guild=NS(id=1,get_channel=lambda _:dest)
  thread=MagicMock(spec=discord.Thread);thread.id=1001;thread.guild=guild;thread.name='🤝 | partnership-#1';thread.mention='<#1001>';thread.edit=AsyncMock();thread.send=AsyncMock(return_value=NS(id=2002,attachments=[],embeds=[discord.Embed().set_image(url='https://cdn.example/proof.png')]))
@@ -63,9 +67,9 @@ async def run():
  approval.message.embeds=[discord.Embed(title='🔍 Partnership Application — Staff Review').set_image(url='https://cdn.example/proof.png')]
  await cog.accept(approval);await cog.accept(interaction(cog,thread,uid=22))
  dest.send.assert_awaited_once();cog.close_thread.assert_awaited_once();assert (await record(1001))['stage']=='approved'
- assert dest.send.call_args.kwargs['content']=='@everyone'
- assert '#java\n#bedrock\n#smp' in dest.send.call_args.kwargs['embed'].description
- assert not dest.send.call_args.kwargs['embed'].fields
+ assert dest.send.call_args.kwargs['content'].startswith('@everyone\n\n')
+ assert '#java\n#bedrock\n#smp' in dest.send.call_args.kwargs['content']
+ assert 'embed' not in dest.send.call_args.kwargs and 'embeds' not in dest.send.call_args.kwargs
  assert ReviewView().deny.label=='Deny'
  assert dest.send.call_args.kwargs['allowed_mentions'].everyone is True
  print('PASS: all ping boundaries/minimum; persistent five-type panel and 20 tag buttons; tag limit and ownership; advertisement/invite -> tags -> proof -> review -> publication/close; repeated approval publishes once; mentions constrained to agreed tier.')

@@ -38,3 +38,5 @@ Run `python tests/smoke_test.py`. It uses a temporary database and mocked Discor
 Removed commands: warnings (warn/warnings/clear-warnings), user-info, slowmode, role-info, rules, ping, massban and avatar. Historical database records are preserved.
 
 Opening messages have no Close Ticket button or partnership requirements block. Rules and tier checks still apply internally. A partner below 30 members is mentioned in a rejection message and the thread is deleted after a persisted 10-second deadline, which resumes after restarts. New threads open in channel 1563853562176344166. Run python tests/dm_flow_test.py to verify the DM application and deletion changes offline.
+
+Approved partnership ads are plain Discord messages, with the agreed ping first and selected hashtags below the ad. Ads longer than one Discord message are split without dropping text, and sent-part IDs are persisted so retries can resume.

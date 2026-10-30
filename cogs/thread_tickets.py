@@ -49,6 +49,20 @@ def partnership_ad(ad,tags):
     return clean_ad(ad)+'\n\n'+'\n'.join(hashtags)
 
 
+def partnership_messages(rec):
+    text=(rec['rule_ours']+'\n\n' if rec['rule_ours'] else '')+partnership_ad(rec['ad'],json.loads(rec['tags']))
+    parts=[]
+    while len(text)>1900:
+        split=text.rfind('\n',0,1900)+1
+        if split<=0:
+            split=1900
+        parts.append(text[:split])
+        text=text[split:]
+    if text:
+        parts.append(text)
+    return parts
+
+
 def panel_embed():
     return discord.Embed(colour=0x155E32, description=(
         '🛡️ **__Support__**\nOnly for private high priority issues.\n\n'
@@ -108,6 +122,8 @@ async def schema():
             await db.execute('ALTER TABLE au_thread_tickets ADD COLUMN answers_json TEXT')
         if 'applicant_username' not in columns:
             await db.execute('ALTER TABLE au_thread_tickets ADD COLUMN applicant_username TEXT')
+        if 'publication_parts' not in columns:
+            await db.execute("ALTER TABLE au_thread_tickets ADD COLUMN publication_parts TEXT DEFAULT '[]'")
         await db.commit()
     finally:
         await db.close()
@@ -124,7 +140,7 @@ async def record(thread_id):
 
 
 async def update(thread_id, **values):
-    allowed = {'stage', 'closed_at', 'ad', 'invite', 'server_id', 'server_name', 'server_icon', 'member_count', 'tags', 'proof_url', 'tag_message_id', 'review_message_id', 'publication_id', 'denials', 'reviewer_id', 'rule_ours', 'rule_theirs', 'claimed_by', 'delete_after', 'answers_json', 'applicant_username'}
+    allowed = {'stage', 'closed_at', 'ad', 'invite', 'server_id', 'server_name', 'server_icon', 'member_count', 'tags', 'proof_url', 'tag_message_id', 'review_message_id', 'publication_id', 'denials', 'reviewer_id', 'rule_ours', 'rule_theirs', 'claimed_by', 'delete_after', 'answers_json', 'applicant_username', 'publication_parts'}
     if not values or not values.keys() <= allowed:
         raise ValueError('Invalid ticket update')
     db = await get_db()
@@ -705,11 +721,26 @@ class ThreadTickets(commands.Cog):
                     if ping_rule(count)!=(rec['rule_ours'],rec['rule_theirs']):
                         await update(interaction.channel.id, stage='review')
                         return await interaction.followup.send('The server moved to a different ping tier. Use /partnership request-proof to restart the agreement and proof step.', ephemeral=True)
-                    embed = base_embed(title=rec['server_name'][:256], description=partnership_ad(rec['ad'],json.loads(rec['tags'])))
-                    embed.set_footer(text=marker)
-                    if rec['server_icon']:
-                        embed.set_thumbnail(url=rec['server_icon'])
-                    published = await dest.send(content=rec['rule_ours'] or None, embed=embed, allowed_mentions=discord.AllowedMentions(everyone=bool(rec['rule_ours']), users=False, roles=False), nonce=interaction.channel.id)
+                    parts=partnership_messages(rec)
+                    sent_ids=json.loads(rec.get('publication_parts') or '[]')
+                    for index in range(len(sent_ids),len(parts)):
+                        nonce=f'{interaction.channel.id}:{index}'
+                        recovered=None
+                        async for candidate in dest.history(limit=None,after=discord.Object(id=interaction.channel.id)):
+                            if candidate.author.id==self.bot.user.id and candidate.content==parts[index] and str(candidate.id) not in sent_ids:
+                                saved_nonce=getattr(candidate,'nonce',None)
+                                if saved_nonce is None or str(saved_nonce)==nonce:
+                                    recovered=candidate
+                                    break
+                        published=recovered or await dest.send(
+                            content=parts[index],
+                            allowed_mentions=discord.AllowedMentions(everyone=bool(rec['rule_ours']) and index==0,users=False,roles=False),
+                            nonce=nonce,
+                        )
+                        sent_ids.append(str(published.id))
+                        await update(interaction.channel.id,publication_parts=json.dumps(sent_ids))
+                    if published is None:
+                        published=discord.Object(id=int(sent_ids[-1]))
                 await update(interaction.channel.id, stage='published', publication_id=str(published.id))
             await interaction.followup.send('Partnership accepted and published. Closing this ticket.', ephemeral=True)
             await self.close_thread(interaction.channel, interaction.user, 'Partnership approved and published', status='approved')
