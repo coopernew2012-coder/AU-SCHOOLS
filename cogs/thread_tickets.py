@@ -653,10 +653,10 @@ class ThreadTickets(commands.Cog):
                     await db.close()
                 await self.add_ticket_staff(thread,interaction.guild,kind)
                 welcome = {
-                    'Support': f'👋 Welcome {interaction.user.mention}! Please describe your issue in detail and a staff member will assist you shortly.',
-                    'Player/Staff Report': f"👋 Welcome {interaction.user.mention}! Please state who you're reporting and describe the incident in detail.",
+                    'Support': f'👋 Hi {interaction.user.mention}! How can I help you?\nI’m the AU Schools AI helper. I can answer server questions and bring in staff when needed.',
+                    'Player/Staff Report': f"👋 Hi {interaction.user.mention}! How can I help you?\nPlease tell us who you’re reporting and what happened. I’m the AI helper; the authorised staff team will review your report.",
                     'Staff Apply': f'👋 Welcome {interaction.user.mention}! Please answer the following questions:\n\n'+STAFF_QUESTIONS,
-                    'Other Inquiries': f'👋 Welcome {interaction.user.mention}! Please describe your inquiry and a staff member will assist you shortly.',
+                    'Other Inquiries': f'👋 Hi {interaction.user.mention}! How can I help you?\nI’m the AU Schools AI helper. Tell me what you need and I’ll help or bring in staff.',
                     'Partnership': '## 📋 Step 1/4 — Advertisement + Invite Link\nSend your full **advertisement text** and your **Discord invite link** in the same message.',
                 }[kind]
                 await thread.send(welcome, allowed_mentions=discord.AllowedMentions(everyone=False,roles=False,users=[interaction.user]))

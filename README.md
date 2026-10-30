@@ -53,3 +53,10 @@ Thread membership reconciles on reconnect and role changes. Applicants/openers r
 Application DMs, questions, completion links, decisions, proof instructions, review cards, transcript downloads, and most moderation/information responses use native Components V2 containers with bold headings, status colours, dividers and contextual footnotes. Ticket panels, partnership ad text, tag selection, brief acknowledgements and dense history tables remain compact. Transcripts extract TextDisplay content from cards. Default mentions are suppressed; intentional applicant and partnership pings opt in explicitly.
 All ticket threads remain under the existing Tickets parent. Discord staff-add system notices are retained, as requested, rather than weakening staff-app/report visibility.
 Run python tests/card_style_test.py for layout and transcript coverage.
+
+## Conversational ticket helper
+Support, Player/Staff Report and Other Inquiries start with “How can I help you?” and identify the AI helper. Staff Apply and Partnership are excluded. The helper uses Groq with `GROQ_API_KEY` in the ignored `.env` and optional `GROQ_MODEL` (default `openai/gpt-oss-20b`). `assets/support-info.json` contains the verified IP, border and server/gameplay rules; missing version, edition or mod approvals go to staff.
+
+Only the opener's messages in an open, unclaimed ticket trigger replies. A bounded history keeps each conversation separate across restarts and is removed when its thread is deleted. Reports notify Senior Manager and above; other support handoffs notify Moderator and above, at most once per five minutes per thread. `/claim` pauses the helper; `/unclaim` resumes it. API failures fall back to staff. The AI cannot run commands, change permissions or make moderation decisions. Conversational replies stay plain text; existing panels and application/partnership flows are preserved.
+
+Run `python tests/support_ai_test.py` for exclusions, history isolation, staff roles, cooldowns and failure handling.

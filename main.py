@@ -57,7 +57,7 @@ class AUSchoolsBot(commands.Bot):
 
         cogs_dir = os.path.join(os.path.dirname(__file__), "cogs")
         enabled_cogs = {"thread_tickets", "autorole", "moderation", "roles",
-                        "softban", "staff", "tickets", "utility", "welcome"}
+                        "softban", "staff", "support_ai", "tickets", "utility", "welcome"}
         for filename in sorted(os.listdir(cogs_dir)):
             if filename[:-3] not in enabled_cogs:
                 continue

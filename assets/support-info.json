@@ -1,0 +1,43 @@
+{
+  "community": "AU Schools SMP — Australian/Oceania Minecraft community",
+  "server_ip": "121.127.47.98:12010",
+  "world_border": "50,000 blocks; radius versus diameter has not been specified",
+  "discord_invite": "https://discord.gg/6pbWbkvTwB",
+  "minecraft_edition": null,
+  "minecraft_version": null,
+  "banned_mods_list": null,
+  "server_rules": [
+    "No spamming text, emojis, images, or mentions.",
+    "No arguing with staff; staff decisions are final.",
+    "Use common sense at all times.",
+    "No hate speech, discrimination, or slurs.",
+    "No harassment, bullying, or toxic behavior.",
+    "No NSFW or adult content.",
+    "No advertising, self-promotion, or DM-advertising.",
+    "Keep topics in their designated channels.",
+    "No loopholing or rules lawyering; the spirit of the rule matters.",
+    "Staff may punish actions not explicitly written in the rules.",
+    "No mini-modding; report rule breakers instead of acting as staff.",
+    "No alternate accounts to bypass bans, mutes, or restrictions.",
+    "No dynamic IP switching or VPNs to evade punishments.",
+    "No doxxing or distribution of personal information.",
+    "No flame-baiting or intentionally upsetting users.",
+    "No severe mic-spamming, screaming, or voice-changer abuse in voice channels.",
+    "No cross-server drama, raiding coordination, or outside fights."
+  ],
+  "gameplay_rules": [
+    "Use common sense at all times.",
+    "No cheating, hacking, or exploiting glitches.",
+    "No banned mods; the full banned-mods list has not been supplied to this assistant.",
+    "No e-chesting loot or intentionally clearing inventory during or right before death.",
+    "Do not use elytras to escape combat or danger.",
+    "No griefing, stealing, or raiding unapproved areas.",
+    "No killing outside designated PvP zones or times.",
+    "No offensive or inappropriate builds.",
+    "No intentional lag machines or server crash attempts.",
+    "No stream-sniping, targeting, or harassing specific players.",
+    "No trap-killing at spawns, warps, or teleport destinations.",
+    "No economy or shop-bug abuse.",
+    "Do not use stasis chambers to escape combat; they may be used to escape danger."
+  ]
+}
