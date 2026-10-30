@@ -19,7 +19,9 @@ from cogs.support_ai import SupportAI,validate_decision,clean_text,IP_QUESTION
 async def run():
     await init_db()
     await schema()
-    bot=NS(get_cog=lambda name:tickets if name=='ThreadTickets' else None)
+    threads={}
+    histories={}
+    bot=NS(get_cog=lambda name:tickets if name=='ThreadTickets' else None,get_channel=lambda tid:threads.get(tid),fetch_channel=AsyncMock())
     tickets=ThreadTickets(bot)
     ai=SupportAI(bot)
     await ai.cog_load()
@@ -51,12 +53,19 @@ async def run():
                 seq+=1
                 return NS(id=seq)
             thread.send=AsyncMock(side_effect=send)
+            def history(limit=100):
+                async def items():
+                    for item in histories.get(tid,[])[:limit]:
+                        yield item
+                return items()
+            thread.history=history
+            threads[tid]=thread
             return thread
 
         def message(thread,text,uid=42,attachments=None,mid=None):
             nonlocal seq
             seq+=1
-            return NS(id=mid or seq,channel=thread,guild=NS(id=1),author=NS(id=uid,bot=False),content=text,attachments=attachments or [])
+            return NS(id=mid or seq,channel=thread,guild=NS(id=1),author=NS(id=uid,bot=False),content=text,attachments=attachments or [],type=discord.MessageType.default)
 
         for index,kind in enumerate(('Staff Apply','Partnership')):
             thread=await new_ticket(10+index,kind)
@@ -65,8 +74,24 @@ async def run():
         claimed=await new_ticket(12,claimed='999')
         await ai.on_message(message(claimed,'ip?'))
         claimed.send.assert_not_awaited()
+        takeover=await new_ticket(19)
+        await ai.on_message(message(takeover,'Hi, how can I help?',uid=999))
+        assert '<@999>' in takeover.send.call_args.args[0] and 'Goodbye' in takeover.send.call_args.args[0]
+        assert takeover.send.call_args.kwargs['allowed_mentions'].users[0].id==999
+        await ai.on_message(message(takeover,'More staff conversation',uid=998))
+        await ai.on_message(message(takeover,'What is the IP?'))
+        assert takeover.send.await_count==1,'Handoff repeated or AI interrupted human conversation'
+        assert (await ai.state(19))['human_id']=='999'
+        ai._human_takeovers.clear()  # Simulate losing the in-memory cache on restart.
+        await ai.on_message(message(takeover,'Are you still there?'))
+        assert takeover.send.await_count==1,'Handoff did not survive restart'
         thread=await new_ticket(20)
-        await ai.on_message(message(thread,'ip?',uid=999))
+        ignored=message(thread,'another bot')
+        ignored.author.bot=True
+        await ai.on_message(ignored)
+        ignored=message(thread,'staff added to thread',uid=999)
+        ignored.type=discord.MessageType.recipient_add
+        await ai.on_message(ignored)
         thread.send.assert_not_awaited()
         incoming=message(thread,'ip?')
         await ai.on_message(incoming)
@@ -75,13 +100,45 @@ async def run():
         await ai.on_message(incoming)
         assert thread.send.await_count==1,'Duplicate Discord event replied twice'
 
-        ai.ask=AsyncMock(return_value={'reply':'Can you tell me what happened?','needs_staff':True})
+        ai.ask=AsyncMock(return_value={'reply':'The border is 50,000 blocks.','needs_staff':False})
+        await ai.on_message(message(thread,'What about the border?'))
+        await ai.on_message(message(thread,'And the gameplay rules?'))
+        assert len(ai.ask.call_args.args[0])>=4,'Conversation history missing'
+        ai.ask.return_value={'reply':'A staff member will review that.','needs_staff':True}
         await ai.on_message(message(thread,'Please help with this problem'))
         assert f'<@&{TICKET_STAFF_ROLE}>' in thread.send.call_args.args[0]
         assert thread.send.call_args.kwargs['allowed_mentions'].roles[0].id==TICKET_STAFF_ROLE
         await ai.on_message(message(thread,'Here are more details'))
-        assert '<@&' not in thread.send.call_args.args[0],'Repeated staff ping within cooldown'
-        assert len(ai.ask.call_args.args[0])>=4,'Conversation history missing'
+        assert thread.send.await_count==4,'AI continued after requesting staff'
+
+        goodbye=await new_ticket(21)
+        await ai.on_message(message(goodbye,'thanks, bye'))
+        await ai.on_message(message(goodbye,'wait'))
+        assert goodbye.send.await_count==1 and (await ai.state(21))['paused']
+
+        pending=await new_ticket(22)
+        entered=asyncio.Event()
+        finish=asyncio.Event()
+        async def slow_answer(*args):
+            entered.set()
+            await finish.wait()
+            return {'reply':'This stale answer must never be sent.','needs_staff':False}
+        ai.ask.side_effect=slow_answer
+        pending_task=asyncio.create_task(ai.on_message(message(pending,'What are the rules?')))
+        await asyncio.wait_for(entered.wait(),2)
+        await ai.on_message(message(pending,'I can help you now.',uid=777))
+        finish.set()
+        await pending_task
+        assert pending.send.await_count==1 and '<@777>' in pending.send.call_args.args[0],'In-flight answer interrupted handoff'
+        ai.ask.side_effect=None
+
+        existing=await new_ticket(23)
+        histories[23]=[message(existing,'Existing staff conversation',uid=888)]
+        await ai.on_ready()
+        assert (await ai.state(23))['human_id']=='888','Startup ignored existing human conversation'
+        existing.send.assert_not_awaited()  # No retroactive goodbye spam.
+        await ai.on_message(message(existing,'Replying to staff'))
+        existing.send.assert_not_awaited()
 
         report=await new_ticket(30,'Player/Staff Report')
         ai.ask.return_value={'reply':'Please describe what happened.','needs_staff':False}
@@ -116,7 +173,7 @@ async def run():
         await ai.on_raw_thread_delete(NS(thread_id=20))
         assert await ai.history(20)==[]
         assert (await ai.state(20))['last_staff_ping']==0
-        print('PASS: exclusions, opener-only replies, known IP, safe output, role handoff, ping cooldown, history isolation/limits, duplicate events, claim pause, API failure/backoff, deletion cleanup.')
+        print('PASS: human takeover once, restart persistence, pending-answer suppression, waiting/finished silence, system/bot filtering, exclusions, verified answers, role handoff, isolated history, claim pause, API fallback and cleanup.')
     finally:
         await ai.cog_unload()
 

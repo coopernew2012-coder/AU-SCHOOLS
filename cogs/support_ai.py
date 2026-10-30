@@ -18,6 +18,7 @@ ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
 STAFF_REQUEST = re.compile(r'\b(speak|talk|chat)\s+(?:to|with)\s+(?:a\s+)?(?:human|staff|moderator|admin)\b|\b(?:human|staff|moderator|admin)\s+(?:please|needed|help)\b|\b(?:ping|call|need)\s+(?:a\s+)?(?:human|staff|moderator|admin)\b',re.I)
 IP_QUESTION = re.compile(r"\s*(?:(?:what(?:'s| is|s)?|give me|send me)\s+)?(?:the\s+)?(?:server\s+)?(?:ip|server address)(?:\s+(?:please|pls))?[?.!\s]*",re.I)
 IP_ADDRESS = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b')
+DONE = re.compile(r"\s*(?:stop(?: replying)?|be quiet|(?:i['’]?m |im )?done|(?:that['’]?s |thats )all|all good|sorted|goodbye|bye|thanks(?:,? (?:bye|that['’]?s all))?|thank you)[.!\s]*",re.I)
 SECRET = re.compile(r'gsk_[A-Za-z0-9_-]{12,}|(?:sk|ghp|github_pat)[_-][A-Za-z0-9_-]{15,}|[A-Za-z0-9_-]{23,30}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{25,}')
 
 
@@ -45,6 +46,7 @@ class SupportAI(commands.Cog):
         self.bot=bot
         self._session=None
         self._slots=asyncio.Semaphore(2)
+        self._human_takeovers={}
         self.knowledge=json.loads((Path(__file__).resolve().parents[1]/'assets'/'support-info.json').read_text(encoding='utf-8'))
 
     async def cog_load(self):
@@ -62,6 +64,12 @@ class SupportAI(commands.Cog):
                     backoff_until REAL NOT NULL DEFAULT 0
                 );
             ''')
+            async with db.execute('PRAGMA table_info(au_ai_state)') as cursor:
+                columns={row['name'] for row in await cursor.fetchall()}
+            if 'human_id' not in columns:
+                await db.execute('ALTER TABLE au_ai_state ADD COLUMN human_id TEXT')
+            if 'paused' not in columns:
+                await db.execute('ALTER TABLE au_ai_state ADD COLUMN paused INTEGER NOT NULL DEFAULT 0')
             await db.commit()
         finally:
             await db.close()
@@ -95,7 +103,7 @@ class SupportAI(commands.Cog):
         try:
             async with db.execute('SELECT * FROM au_ai_state WHERE thread_id=?',(str(thread_id),)) as cursor:
                 row=await cursor.fetchone()
-            return dict(row) if row else {'last_staff_ping':0,'backoff_until':0}
+            return dict(row) if row else {'last_staff_ping':0,'backoff_until':0,'human_id':None,'paused':0}
         finally:
             await db.close()
 
@@ -135,6 +143,8 @@ class SupportAI(commands.Cog):
 
     async def staff_reply(self,message,rec,reply):
         state=await self.state(message.channel.id)
+        if message.channel.id in self._human_takeovers:
+            return None
         ping=time.time()-state['last_staff_ping']>=300
         role_id=ticket_threshold(rec['kind'])
         prefix=f'<@&{role_id}> **staff assistance needed.**\n\n' if ping else ''
@@ -148,14 +158,68 @@ class SupportAI(commands.Cog):
                 await db.close()
         return sent
 
+    async def pause(self,thread_id):
+        db=await get_db()
+        try:
+            await db.execute('INSERT INTO au_ai_state(thread_id,paused) VALUES(?,1) ON CONFLICT(thread_id) DO UPDATE SET paused=1',(str(thread_id),))
+            await db.commit()
+        finally:
+            await db.close()
+
+    async def handover(self,message,announce=True):
+        # Set this before any I/O or ticket lock: an already-running AI request
+        # must discard its answer immediately when a human starts speaking.
+        thread_id=message.channel.id
+        if self._human_takeovers.setdefault(thread_id,message.author.id)!=message.author.id:
+            return
+        db=await get_db()
+        try:
+            cursor=await db.execute('INSERT INTO au_ai_state(thread_id,human_id,paused) VALUES(?,?,1) ON CONFLICT(thread_id) DO UPDATE SET human_id=excluded.human_id,paused=1 WHERE au_ai_state.human_id IS NULL',(str(thread_id),str(self._human_takeovers[thread_id])))
+            first=cursor.rowcount>0
+            await db.commit()
+        finally:
+            await db.close()
+        if first and announce:
+            try:
+                await message.channel.send(f'Handing this ticket over to <@{message.author.id}>. Goodbye! 👋',allowed_mentions=discord.AllowedMentions(everyone=False,roles=False,users=[discord.Object(id=message.author.id)]))
+            except (discord.NotFound,discord.Forbidden):
+                pass  # Preserve the handoff even if the thread was just closed.
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        # Existing conversations and reconnects must not restart the assistant
+        # over somebody who already stepped in before this deployment.
+        db=await get_db()
+        try:
+            async with db.execute("SELECT thread_id,opener_id,kind FROM au_thread_tickets WHERE stage='open' AND closed_at IS NULL AND thread_id IS NOT NULL") as cursor:
+                rows=await cursor.fetchall()
+        finally:
+            await db.close()
+        for row in rows:
+            if row['kind'] not in KINDS or (await self.state(row['thread_id']))['human_id']:
+                continue
+            try:
+                thread=self.bot.get_channel(int(row['thread_id'])) or await self.bot.fetch_channel(int(row['thread_id']))
+                async for message in thread.history(limit=100):
+                    if not message.author.bot and str(message.author.id)!=row['opener_id'] and message.type in (discord.MessageType.default,discord.MessageType.reply):
+                        await self.handover(message,announce=False)
+                        break
+            except discord.HTTPException:
+                continue
+
     @commands.Cog.listener()
     async def on_message(self,message):
         if message.author.bot or not message.guild or not isinstance(message.channel,discord.Thread):
             return
-        rec=await record(message.channel.id)
-        if not rec or rec['kind'] not in KINDS or rec['closed_at'] or rec['stage']!='open' or rec['claimed_by']:
+        if message.type not in (discord.MessageType.default,discord.MessageType.reply):
             return
-        if str(message.author.id)!=rec['opener_id'] or (not message.content.strip() and not message.attachments):
+        rec=await record(message.channel.id)
+        if not rec or rec['kind'] not in KINDS or rec['closed_at'] or rec['stage']!='open':
+            return
+        if str(message.author.id)!=rec['opener_id']:
+            await self.handover(message)
+            return
+        if rec['claimed_by'] or message.channel.id in self._human_takeovers or (not message.content.strip() and not message.attachments):
             return
         cog=self.bot.get_cog('ThreadTickets')
         if not cog:
@@ -164,12 +228,20 @@ class SupportAI(commands.Cog):
             rec=await record(message.channel.id)
             if not rec or rec['closed_at'] or rec['claimed_by'] or rec['stage']!='open':
                 return
+            state=await self.state(message.channel.id)
+            if state['paused'] or message.channel.id in self._human_takeovers:
+                return
             text=message.content.strip() or '[User uploaded an attachment; staff must inspect it.]'
             if not await self.remember(message.channel.id,'user',text,message.id):
                 return
             ip_question=bool(IP_QUESTION.fullmatch(text))
             if STAFF_REQUEST.search(text):
                 decision={'reply':"A staff member will help you here. While you wait, please tell us what you need help with or add any relevant details.",'needs_staff':True}
+            elif DONE.fullmatch(text):
+                await self.pause(message.channel.id)
+                if message.channel.id not in self._human_takeovers:
+                    await message.channel.send("No worries — I'll leave you to it. Goodbye! 👋",allowed_mentions=discord.AllowedMentions.none())
+                return
             elif ip_question:
                 decision={'reply':'The AU Schools server IP is **`'+self.knowledge['server_ip']+'`**. Are you having trouble connecting?','needs_staff':False}
             elif message.attachments:
@@ -193,15 +265,24 @@ class SupportAI(commands.Cog):
                     decision={'reply':"I'm unable to confirm that right now, so a staff member will help. Please add any details that would help them understand the issue.",'needs_staff':True}
             if rec['kind']=='Player/Staff Report' and not ip_question:
                 decision['needs_staff']=True
-            # Locking against close/claim prevents replies after the ticket is handed over or deleted.
+            # Humans do not wait for this lock or a network request to finish.
+            # Suppress answers generated while somebody else stepped in.
+            current_state=await self.state(message.channel.id)
+            if message.channel.id in self._human_takeovers or current_state['paused']:
+                return
             if decision['needs_staff']:
+                await self.pause(message.channel.id)
+                if message.channel.id in self._human_takeovers:
+                    return
                 sent=await self.staff_reply(message,rec,decision['reply'])
             else:
                 sent=await message.channel.send(decision['reply'],allowed_mentions=discord.AllowedMentions.none())
-            await self.remember(message.channel.id,'assistant',decision['reply'],sent.id)
+            if sent:
+                await self.remember(message.channel.id,'assistant',decision['reply'],sent.id)
 
     @commands.Cog.listener()
     async def on_raw_thread_delete(self,payload):
+        self._human_takeovers.pop(payload.thread_id,None)
         db=await get_db()
         try:
             await db.execute('DELETE FROM au_ai_messages WHERE thread_id=?',(str(payload.thread_id),))
