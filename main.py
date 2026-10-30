@@ -54,7 +54,7 @@ class AUSchoolsBot(commands.Bot):
 
         cogs_dir = os.path.join(os.path.dirname(__file__), "cogs")
         enabled_cogs = {"thread_tickets", "autorole", "moderation", "roles",
-                        "softban", "staff", "tickets", "utility", "warnings", "welcome"}
+                        "softban", "staff", "tickets", "utility", "welcome"}
         for filename in sorted(os.listdir(cogs_dir)):
             if filename[:-3] not in enabled_cogs:
                 continue
@@ -85,7 +85,9 @@ class AUSchoolsBot(commands.Bot):
         """Expose operational commands, never panel/feature editors."""
         for name in ("dashboard", "admin-config", "apply", "ad", "autorole", "welcome", "staff",
                      "verify_setup", "verify_delete", "masskick", "blacklistedaddons",
-                     "edit-blacklistedaddons", "edit-rules", "edit-serverinfo"):
+                     "edit-blacklistedaddons", "edit-rules", "edit-serverinfo",
+                     "warn", "warnings", "clear-warnings", "user-info", "slowmode",
+                     "role-info", "rules", "ping", "massban", "avatar"):
             self.tree.remove_command(name)
         for root, allowed in {
             "ticket": {"panel"},

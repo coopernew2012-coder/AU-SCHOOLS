@@ -34,3 +34,5 @@ Informational mentions in tickets are suppressed; only the agreed ping in the ap
 
 ## Offline tests
 Run `python tests/smoke_test.py`. It uses a temporary database and mocked Discord interactions; it does not publish messages or log in.
+
+Removed commands: warnings (warn/warnings/clear-warnings), user-info, slowmode, role-info, rules, ping, massban and avatar. Historical database records are preserved.

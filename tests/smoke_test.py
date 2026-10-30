@@ -18,12 +18,12 @@ async def run():
  await init_db();await schema()
  from main import AUSchoolsBot
  async with AUSchoolsBot() as loaded:
-  for name in ['thread_tickets','autorole','moderation','roles','softban','staff','tickets','utility','warnings','welcome']:
+  for name in ['thread_tickets','autorole','moderation','roles','softban','staff','tickets','utility','welcome']:
    await loaded.load_extension('cogs.'+name)
   loaded.apply_command_policy()
   commands={c.qualified_name for c in loaded.tree.walk_commands()}
   assert {'close','claim','unclaim','partnerclose','transcript','ticket panel'}<=commands
-  assert not commands & {'dashboard','apply','ad','verify_setup','verify_delete','masskick','blacklistedaddons','welcome','autorole','admin-config','edit-rules','edit-serverinfo'}
+  assert not commands & {'dashboard','apply','ad','verify_setup','verify_delete','masskick','blacklistedaddons','welcome','autorole','admin-config','edit-rules','edit-serverinfo','warn','warnings','clear-warnings','user-info','slowmode','role-info','rules','ping','massban','avatar'}
   assert {c.name for c in loaded.tree.get_command('ticket').commands}=={'panel'}
  for count,expected in [(30,('','@everyone')),(49,('','@everyone')),(50,('@here','@everyone')),(99,('@here','@everyone')),(100,('@here','@here')),(149,('@here','@here')),(150,('@everyone','@here')),(199,('@everyone','@here')),(200,('@everyone','')),(5000,('@everyone',''))]:assert ping_rule(count)==expected
  for n in [0,29]:
