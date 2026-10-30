@@ -32,6 +32,8 @@ async def run():
  assert 'file' not in args and 'files' not in args
  assert 'test.applicant' in args['embed'].description and '`10`' in args['embed'].description
  assert not cog._staff_interviews
+ assert dm.send.call_args.args[0].count('<#55>')==1
+ assert 'https://discord.com/channels/' not in dm.send.call_args.args[0]
  # Manual close saves a transcript and deletes, rather than archiving.
  child.guild=NS(id=1);child.name='staffapply-1'
  original=legacy.generate_transcript;legacy.generate_transcript=AsyncMock(return_value=discord.File(io.BytesIO(b'test transcript'),filename='test.html'))

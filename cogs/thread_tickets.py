@@ -512,7 +512,7 @@ class ThreadTickets(commands.Cog):
             finally:
                 await db.close()
             try:
-                await dm.send(f'✅ Staff app submitted\n\nView your application thread: <#{thread.id}>\nhttps://discord.com/channels/{interaction.guild.id}/{thread.id}')
+                await dm.send(f'✅ Staff app submitted\n\nView your application thread: <#{thread.id}>')
             except discord.HTTPException:
                 pass
         except (discord.HTTPException,OSError) as error:
