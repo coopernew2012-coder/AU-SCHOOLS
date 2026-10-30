@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from config import DATA_DIR
+from access import ticket_staff, ACCEPTED_STAFF_ROLE
 from database import get_db, get_setting, set_setting
 from utils import base_embed
 
@@ -346,6 +347,16 @@ class StaffDecisionModal(discord.ui.Modal,title='Staff Application Review'):
             rec=await record(interaction.channel.id)
             if rec['stage'] not in ('app_review','app_hold'):
                 return await interaction.followup.send('This application has already been reviewed.',ephemeral=True)
+            if self.action=='accept':
+                try:
+                    member=interaction.guild.get_member(int(rec['opener_id'])) or await interaction.guild.fetch_member(int(rec['opener_id']))
+                    role=interaction.guild.get_role(ACCEPTED_STAFF_ROLE)
+                    if role is None:
+                        return await interaction.followup.send('The accepted staff role is missing. No decision was applied.',ephemeral=True)
+                    if role not in member.roles:
+                        await member.add_roles(role,reason=f'Staff application accepted by {interaction.user}')
+                except discord.HTTPException:
+                    return await interaction.followup.send('I could not grant the staff role. Check Manage Roles and my role position, then retry Accept.',ephemeral=True)
             word={'accept':'accepted','deny':'denied','hold':'placed on hold'}[self.action]
             await interaction.channel.send(embed=base_embed(title='Staff Application '+word.title(),description=f"**Applicant:** <@{rec['opener_id']}>\n**Reviewed by:** {interaction.user.mention}\n**Reason:** {self.reason.value}"),allowed_mentions=NO_MENTIONS)
             try:
@@ -420,21 +431,66 @@ class ThreadTickets(commands.Cog):
         for row in rows:
             self.schedule_low_member_deletion(int(row['thread_id']))
 
+    @commands.Cog.listener('on_ready')
+    async def refresh_thread_members(self):
+        db=await get_db()
+        try:
+            async with db.execute("SELECT * FROM au_thread_tickets WHERE closed_at IS NULL AND thread_id IS NOT NULL AND stage!='failed'") as cursor:
+                rows=[dict(row) for row in await cursor.fetchall()]
+        finally:
+            await db.close()
+        for rec in rows:
+            try:
+                thread=self.bot.get_channel(int(rec['thread_id'])) or await self.bot.fetch_channel(int(rec['thread_id']))
+                await self.sync_ticket_access(thread,rec)
+            except discord.HTTPException as error:
+                print(f"Could not reconcile ticket {rec['thread_id']}: {error}")
+
     async def cog_unload(self):
         for task in self._deletion_tasks.values():
             task.cancel()
 
     async def is_staff(self, interaction, rec):
-        if not rec or not isinstance(interaction.user, discord.Member):
-            return False
-        perms = interaction.user.guild_permissions
-        if perms.administrator or perms.manage_guild:
-            return True
-        key = 'ticket_admin_role' if rec['kind']=='Player/Staff Report' else 'partner_review_role' if rec['kind']=='Partnership' else 'ticket_staff_role'
-        role_id = await get_setting(interaction.guild.id, key)
-        if rec['kind']=='Staff Apply':
-            role_id = await get_setting(interaction.guild.id,'apply_reviewer_role') or role_id
-        return bool(role_id and str(role_id) in {str(r.id) for r in interaction.user.roles})
+        return bool(rec and isinstance(interaction.user,discord.Member) and ticket_staff(interaction.user,rec['kind']))
+
+    async def add_ticket_staff(self,thread,guild,kind):
+        for member in guild.members:
+            if not member.bot and ticket_staff(member,kind):
+                await thread.add_user(member)
+
+    async def sync_ticket_access(self,thread,rec):
+        guild=thread.guild
+        desired={member.id for member in guild.members if not member.bot and ticket_staff(member,rec['kind'])}
+        desired.update({int(rec['opener_id']),self.bot.user.id})
+        current={member.id for member in await thread.fetch_members()}
+        for member_id in desired-current:
+            member=guild.get_member(member_id)
+            if member:
+                await thread.add_user(member)
+        for member_id in current-desired:
+            await thread.remove_user(discord.Object(id=member_id))
+
+    @commands.Cog.listener()
+    async def on_member_update(self,before,after):
+        if before.roles==after.roles:
+            return
+        db=await get_db()
+        try:
+            async with db.execute("SELECT * FROM au_thread_tickets WHERE guild_id=? AND closed_at IS NULL AND thread_id IS NOT NULL AND stage!='failed'",(str(after.guild.id),)) as cursor:
+                rows=[dict(row) for row in await cursor.fetchall()]
+        finally:
+            await db.close()
+        for rec in rows:
+            if after.id==int(rec['opener_id']) or ticket_staff(before,rec['kind'])==ticket_staff(after,rec['kind']):
+                continue
+            try:
+                thread=self.bot.get_channel(int(rec['thread_id'])) or await self.bot.fetch_channel(int(rec['thread_id']))
+                if ticket_staff(after,rec['kind']):
+                    await thread.add_user(after)
+                else:
+                    await thread.remove_user(after)
+            except discord.HTTPException as error:
+                print(f"Could not update ticket role access for {after.id}: {error}")
 
     async def parent_channel(self, guild):
         async with self.lock((guild.id, "parent")):
@@ -508,12 +564,7 @@ class ThreadTickets(commands.Cog):
                 await db.close()
             thread=await parent.create_thread(name=f'🛡️ | staffapply-#{number}',type=discord.ChannelType.private_thread,invitable=False,auto_archive_duration=1440,reason=f'Completed staff application from {interaction.user}')
             await thread.add_user(interaction.user)
-            role_id=await get_setting(interaction.guild.id,'apply_reviewer_role') or await get_setting(interaction.guild.id,'ticket_staff_role')
-            role=interaction.guild.get_role(int(role_id)) if role_id and role_id.isdigit() else None
-            if role:
-                for member in role.members:
-                    if not member.bot:
-                        await thread.add_user(member)
+            await self.add_ticket_staff(thread,interaction.guild,'Staff Apply')
             embeds=staff_application_embeds(interaction.user.id,interaction.user.name,answers)
             for index,embed in enumerate(embeds):
                 review=await thread.send(
@@ -593,13 +644,7 @@ class ThreadTickets(commands.Cog):
                     await db.commit()
                 finally:
                     await db.close()
-                role_key = 'ticket_admin_role' if kind=='Player/Staff Report' else 'partner_review_role' if kind=='Partnership' else 'ticket_staff_role'
-                role_id = await get_setting(interaction.guild.id, role_key)
-                role = interaction.guild.get_role(int(role_id)) if role_id and role_id.isdigit() else None
-                if role:
-                    for member in role.members:
-                        if not member.bot:
-                            await thread.add_user(member)
+                await self.add_ticket_staff(thread,interaction.guild,kind)
                 welcome = {
                     'Support': f'👋 Welcome {interaction.user.mention}! Please describe your issue in detail and a staff member will assist you shortly.',
                     'Player/Staff Report': f"👋 Welcome {interaction.user.mention}! Please state who you're reporting and describe the incident in detail.",

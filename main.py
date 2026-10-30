@@ -10,6 +10,7 @@ from discord.ext import commands
 from database import init_db, get_setting, set_setting
 from config import DISCORD_TOKEN, ACCENT_COLOR, BOT_USERNAME, MAIN_GUILD_ID
 from utils import error_embed
+from access import at_or_above, MODERATION_ROLE
 from web_server import start_web_server
 
 # ------------------------------------------------------------------
@@ -89,6 +90,10 @@ class AUSchoolsBot(commands.Bot):
                      "warn", "warnings", "clear-warnings", "user-info", "slowmode",
                      "role-info", "rules", "ping", "massban", "avatar"):
             self.tree.remove_command(name)
+        for name in ('kick','ban','unban','mute','unmute','timeout','untimeout','softmute','unsoftmute','partnership'):
+            command=self.tree.get_command(name)
+            if command:
+                command.default_permissions=None
         for root, allowed in {
             "ticket": {"panel"},
             "partnership": {"request-proof", "reset-cooldown"},
@@ -111,6 +116,21 @@ class AUSchoolsBot(commands.Bot):
         command = interaction.command
         root = command.qualified_name.split(" ")[0] if command else ""
         if root in PUBLIC_COMMANDS:
+            return True
+
+        guarded={"kick","ban","unban","mute","unmute","timeout","untimeout","softmute","unsoftmute","partnership"}
+        if root in guarded:
+            from access import TICKET_STAFF_ROLE
+            threshold=TICKET_STAFF_ROLE if root=='partnership' else MODERATION_ROLE
+            member=interaction.user if isinstance(interaction.user,discord.Member) else None
+            if not at_or_above(member,threshold):
+                await interaction.response.send_message(embed=error_embed(f'You need <@&{threshold}> or a higher role to use this command.'),ephemeral=True)
+                raise AccessDenied('Role threshold not met')
+            target=getattr(interaction.namespace,'member',None) or getattr(interaction.namespace,'user',None)
+            if isinstance(target,discord.Member) and member.id!=interaction.guild.owner_id:
+                if target.id in (member.id,interaction.guild.owner_id,self.user.id) or target.top_role>=member.top_role:
+                    await interaction.response.send_message(embed=error_embed('You cannot moderate yourself, the server owner, the bot, or a member with an equal or higher role.'),ephemeral=True)
+                    raise AccessDenied('Target role hierarchy')
             return True
 
         member = interaction.user if isinstance(interaction.user, discord.Member) else None

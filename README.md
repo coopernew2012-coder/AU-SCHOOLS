@@ -40,3 +40,11 @@ Removed commands: warnings (warn/warnings/clear-warnings), user-info, slowmode, 
 Opening messages have no Close Ticket button or partnership requirements block. Rules and tier checks still apply internally. A partner below 30 members is mentioned in a rejection message and the thread is deleted after a persisted 10-second deadline, which resumes after restarts. New threads open in channel 1563853562176344166. Run python tests/dm_flow_test.py to verify the DM application and deletion changes offline.
 
 Approved partnership ads are plain Discord messages, with the agreed ping first and selected hashtags below the ad. Ads longer than one Discord message are split without dropping text, and sent-part IDs are persisted so retries can resume.
+
+## AU Schools role thresholds
+- Staff applications and Player/Staff Report: Senior Manager 1563853560008015933 and above.
+- All other ticket categories: Moderator 1563853559970136219 and above.
+- Kick, ban, timeout/mute and reversals: Admin 1563853559970136222 and above; targets must rank below the moderator.
+- Accepted staff: grant Moderator 1563853559970136219 before confirming acceptance.
+- On join: Member 1563853559944974375.
+Thread membership reconciles on reconnect and role changes. Applicants/openers retain access to their own threads. Discord Administrator and Manage Threads permissions can independently bypass private-thread visibility; bot review actions still check the configured hierarchy. Native permission defaults do not hide moderation commands; the bot enforces thresholds at execution.

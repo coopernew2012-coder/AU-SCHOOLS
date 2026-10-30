@@ -2,6 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from config import MAIN_GUILD_ID
+from access import JOIN_ROLE
 from utils import base_embed, success_embed, error_embed
 
 
@@ -125,6 +127,9 @@ class AutoRole(commands.Cog):
                 (str(member.guild.id),),
             ) as cursor:
                 roles = await cursor.fetchall()
+
+            if not roles and member.guild.id==MAIN_GUILD_ID:
+                roles=[{'role_id':str(JOIN_ROLE)}]
 
             for role_row in roles:
                 role = member.guild.get_role(int(role_row["role_id"]))

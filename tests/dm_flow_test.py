@@ -22,7 +22,12 @@ async def run():
  parent=NS(create_thread=AsyncMock(return_value=child))
  bot=NS(wait_for=AsyncMock(side_effect=[NS(content=f'Answer {i}',attachments=[]) for i in range(6)]))
  cog=ThreadTickets(bot);cog.parent_channel=AsyncMock(return_value=parent)
- interaction=NS(guild=NS(id=1),user=user,followup=NS(send=AsyncMock()))
+ guild=NS(id=1,members=[])
+ role=NS(id=1563853559970136219)
+ accepted_member=NS(roles=[],add_roles=AsyncMock())
+ guild.get_role=lambda _:role
+ guild.get_member=lambda _:accepted_member
+ interaction=NS(guild=guild,user=user,followup=NS(send=AsyncMock()))
  await cog.start_staff_application(interaction)
  assert bot.wait_for.await_count==6;parent.create_thread.assert_awaited_once()
  rec=await record(55);assert rec['stage']=='app_review' and len(json.loads(rec['answers_json']))==6
@@ -39,11 +44,12 @@ async def run():
  original=legacy.generate_transcript;legacy.generate_transcript=AsyncMock(return_value=discord.File(io.BytesIO(b'test transcript'),filename='test.html'))
  cog.bot.get_user=lambda _:user
  cog.is_staff=AsyncMock(return_value=True)
- reviewer=NS(user=NS(id=20,mention='<@20>'),channel=child,response=NS(defer=AsyncMock()),followup=NS(send=AsyncMock()))
+ reviewer=NS(guild=guild,user=NS(id=20,mention='<@20>'),channel=child,response=NS(defer=AsyncMock()),followup=NS(send=AsyncMock()))
  hold=StaffDecisionModal(cog,'hold');hold.reason._value='Reviewing experience'
  await hold.on_submit(reviewer);assert (await record(55))['stage']=='app_hold';child.delete.assert_not_awaited()
  accept=StaffDecisionModal(cog,'accept');accept.reason._value='Approved'
  await accept.on_submit(reviewer);await accept.on_submit(reviewer)
+ accepted_member.add_roles.assert_awaited_once()
  child.delete.assert_awaited_once();assert (await record(55))['closed_at']
  legacy.generate_transcript=original
  # An expired persisted rejection deadline resumes and deletes its thread.
