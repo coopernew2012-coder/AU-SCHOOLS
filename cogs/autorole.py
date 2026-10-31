@@ -111,6 +111,17 @@ class AutoRole(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
+        # AU Schools' Member role is mandatory, independent of legacy toggles
+        # or any additional saved auto-roles.
+        if member.guild.id==MAIN_GUILD_ID:
+            role=member.guild.get_role(JOIN_ROLE)
+            if role:
+                try:
+                    await member.add_roles(role,reason='AU Schools automatic member role on join')
+                except discord.HTTPException as error:
+                    print(f'Join role assignment failed for {member.id}: HTTP {error.status}')
+            else:
+                print(f'Join role {JOIN_ROLE} is missing in AU Schools')
         db = await get_db()
         try:
             async with db.execute(
@@ -132,6 +143,8 @@ class AutoRole(commands.Cog):
                 roles=[{'role_id':str(JOIN_ROLE)}]
 
             for role_row in roles:
+                if member.guild.id==MAIN_GUILD_ID and int(role_row['role_id'])==JOIN_ROLE:
+                    continue
                 role = member.guild.get_role(int(role_row["role_id"]))
                 if role:
                     try:
