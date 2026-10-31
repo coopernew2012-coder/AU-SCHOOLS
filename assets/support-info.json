@@ -39,5 +39,6 @@
     "No trap-killing at spawns, warps, or teleport destinations.",
     "No economy or shop-bug abuse.",
     "Do not use stasis chambers to escape combat; they may be used to escape danger."
-  ]
+  ],
+  "custom_recipes": "For custom recipes and how to craft them, check <#1563853562176344164>. Refer recipe questions to that channel; do not invent ingredients or crafting instructions."
 }
